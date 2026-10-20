@@ -1,0 +1,11 @@
+import request from './request'
+export const createOrder = payload => request.post('/order/create', payload)
+export const orders = params => request.get('/order/my', { params })
+export const orderDetail = no => request.get(`/order/${encodeURIComponent(no)}`)
+export const cancelOrder = no => request.post(`/order/cancel/${encodeURIComponent(no)}`)
+export const confirmReceipt = no => request.post(`/order/confirmReceipt/${encodeURIComponent(no)}`)
+export const digitalContent = no => request.get(`/order/${encodeURIComponent(no)}/digital-content`)
+export const createPayment = payload => request.post('/payment/create', payload)
+export const queryPayment = no => request.get(`/payment/query/${encodeURIComponent(no)}`)
+export const applyRefund = payload => request.post('/refund/apply', payload)
+export const myRefunds = params => request.get('/refund/my', { params })

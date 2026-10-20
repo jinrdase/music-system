@@ -1,0 +1,8 @@
+<script setup>
+import { reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useUserStore } from '../../stores/user'
+const form=reactive({username:String(useRoute().query.username||''),password:''});const rules={username:[{required:true,message:'请输入用户名',trigger:'blur'}],password:[{required:true,message:'请输入密码',trigger:'blur'}]};const formRef=ref();const busy=ref(false);const user=useUserStore();const router=useRouter();const route=useRoute()
+async function submit(){await formRef.value.validate();busy.value=true;try{await user.login(form);router.replace(typeof route.query.redirect==='string'?route.query.redirect:'/')}finally{busy.value=false}}
+</script>
+<template><main class="auth-page"><section class="auth-art"><span class="eyebrow">INDEPENDENT MUSIC STORE</span><h1>让热爱<br/>留下声音。</h1><p>在这里发现值得收藏的专辑与音乐周边。</p></section><section class="auth-card"><RouterLink to="/" class="brand">◉ 潮汐唱片</RouterLink><h2 style="margin-top:32px">欢迎回来</h2><p class="muted">登录后继续探索你的音乐收藏</p><el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="submit"><el-form-item prop="username"><el-input v-model="form.username" placeholder="用户名" autocomplete="username"/></el-form-item><el-form-item prop="password"><el-input v-model="form.password" type="password" show-password placeholder="密码" autocomplete="current-password" @keyup.enter="submit"/></el-form-item><el-button type="primary" style="width:100%;margin-top:8px" :loading="busy" @click="submit">登录</el-button></el-form><p class="auth-foot">还没有账号？ <RouterLink to="/register" class="login-link">创建账号</RouterLink></p></section></main></template>

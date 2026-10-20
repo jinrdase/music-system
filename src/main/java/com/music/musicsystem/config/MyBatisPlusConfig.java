@@ -8,6 +8,7 @@ import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import com.baomidou.mybatisplus.core.config.GlobalConfig;
 
 import javax.sql.DataSource;
 import java.time.LocalDateTime;
@@ -28,6 +29,10 @@ public class MyBatisPlusConfig {
 
         factory.setDataSource(dataSource);
         factory.setTypeAliasesPackage("com.music.musicsystem.entity");
+
+        GlobalConfig globalConfig = new GlobalConfig();
+        globalConfig.setMetaObjectHandler(metaObjectHandler());
+        factory.setGlobalConfig(globalConfig);
 
         MybatisConfiguration configuration = new MybatisConfiguration();
 

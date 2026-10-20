@@ -1,0 +1,1 @@
+<template><main class="main-content"><el-result icon="warning" title="页面不存在" sub-title="该页面路径无效或功能尚未开放"><template #extra><RouterLink to="/"><el-button type="primary">返回首页</el-button></RouterLink></template></el-result></main></template>

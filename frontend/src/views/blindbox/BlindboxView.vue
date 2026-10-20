@@ -1,0 +1,11 @@
+<script setup>
+import { onMounted, ref } from 'vue'
+import { blindboxes, blindboxDetail, drawRecords } from '../../api/blindbox'
+import { useUserStore } from '../../stores/user'
+import PageTitle from '../../components/PageTitle.vue'
+const user=useUserStore(),rows=ref([]),loading=ref(false),page=ref(1),total=ref(0),detail=ref(null),records=ref([])
+async function load(){loading.value=true;try{const p=await blindboxes({current:page.value,size:12});rows.value=p?.records||[];total.value=Number(p?.total||0);if(user.isLoggedIn){const r=await drawRecords({current:1,size:10});records.value=r?.records||[]}}finally{loading.value=false}}
+async function show(row){detail.value=await blindboxDetail(row.id)}
+onMounted(load)
+</script>
+<template><PageTitle eyebrow="MYSTERY EDITION" title="音乐盲盒" description="探索当前上架盲盒与公开奖品配置。"/><div class="blindbox-banner">目前后端尚无面向用户的抽取 HTTP 接口。此页只展示真实商品与历史记录，不会伪造抽取结果或发起扣款。</div><div v-loading="loading" class="album-grid"><article v-for="box in rows" :key="box.id" class="content-card"><span class="eyebrow">LIMITED MYSTERY</span><h2>{{box.name}}</h2><p class="muted">{{box.description||'收藏一份未知惊喜'}}</p><strong class="price-large">¥ {{box.price}}</strong><p class="muted">剩余 {{box.remainCount??'—'}}</p><el-button type="primary" @click="show(box)">查看详情</el-button></article></div><div class="pagination"><el-pagination v-model:current-page="page" :page-size="12" :total="total" layout="prev,pager,next" @current-change="load"/></div><section v-if="user.isLoggedIn" class="content-card"><h2>我的抽取记录</h2><el-table :data="records"><el-table-column prop="boxId" label="盲盒 ID"/><el-table-column prop="prizeName" label="奖品"/><el-table-column prop="prizeLevel" label="等级"/><el-table-column prop="drawCount" label="累计抽数"/><el-table-column prop="createTime" label="时间"/></el-table></section><el-dialog v-if="detail" v-model="detail" title="盲盒详情"><h3>{{detail.blindBox?.name}}</h3><p>{{detail.blindBox?.description}}</p><p>价格 ¥{{detail.blindBox?.price}} · 剩余 {{detail.blindBox?.remainCount}}</p><el-table :data="detail.prizes||[]"><el-table-column prop="prizeName" label="奖品"/><el-table-column prop="prizeLevel" label="等级"/><el-table-column prop="probability" label="概率"/></el-table><p class="muted">抽取功能尚未由后端开放。</p></el-dialog></template>
