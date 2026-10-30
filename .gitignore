@@ -59,3 +59,6 @@ alipay-local.properties
 
 *.docx
 *.doc
+
+# AI 协作过程记录（不上传）
+.mentor/
