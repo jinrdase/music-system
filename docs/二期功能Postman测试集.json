@@ -1,0 +1,2056 @@
+{
+  "info": {
+    "name": "PP音乐二期功能测试集",
+    "description": "覆盖二期五批次全部功能（F-4.1 ~ F-4.9）的 Postman 集合。\n\n【使用方法】\n1. 确认后端已启动（http://localhost:8080）、MySQL 3308 / Redis 6379 在运行。\n支付渠道已收敛为支付宝沙箱：所有支付用 paymentMethod=2；文件夹 7 为真实沙箱链路（需浏览器人工付款）。\n2. 用 Postman 导入本文件 → Runner → 选中整个集合 → 一键按顺序运行；也可以按文件夹单独跑，但【0-准备】必须先跑（登录存 token、建地址）。\n3. 集合变量里的专辑/盲盒 id 与我本机测试数据一致，若你库中数据不同，请改集合变量：physicalAlbumId1 / physicalAlbumId2 / digitalAlbumId / testBoxId。\n\n【需要数据库配合的两项（Postman 做不了）】\n- 超时关单（批次1）：建单后手动执行  UPDATE music_system.order_info SET expire_time=NOW()-INTERVAL 5 MINUTE WHERE order_no='<订单号>';  然后 ≤1 分钟内订单被定时任务自动取消。\n- 管理员账号：若库中无 admintest，先跑 0.1 注册，再执行  UPDATE music_system.sys_user SET role='admin' WHERE username='admintest';\n\n【需要手动配合的一项】\n- 头像上传（6.14）：Postman 不允许脚本指定本地文件，需在 form-data 里手动选择一张 PNG/JPG 后发送。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "pwToken",
+      "value": ""
+    },
+    {
+      "key": "addressId",
+      "value": ""
+    },
+    {
+      "key": "physicalAlbumId1",
+      "value": "6293",
+      "description": "实物专辑（PHYSICAL），测试数据 Super Sunshine"
+    },
+    {
+      "key": "physicalAlbumId2",
+      "value": "7547",
+      "description": "实物专辑（PHYSICAL），测试数据 收敛水"
+    },
+    {
+      "key": "digitalAlbumId",
+      "value": "379730914",
+      "description": "数字专辑（DIGITAL），测试数据 数字测试专辑Batch1"
+    },
+    {
+      "key": "testBoxId",
+      "value": "2",
+      "description": "测试盲盒 TestBox2026，若库存不足请后台新建并改此变量"
+    },
+    {
+      "key": "d1OrderNo",
+      "value": ""
+    },
+    {
+      "key": "o2OrderId",
+      "value": ""
+    },
+    {
+      "key": "o2OrderNo",
+      "value": ""
+    },
+    {
+      "key": "o2PaymentNo",
+      "value": ""
+    },
+    {
+      "key": "o2RefundId",
+      "value": ""
+    },
+    {
+      "key": "o3OrderId",
+      "value": ""
+    },
+    {
+      "key": "o3PaymentNo",
+      "value": ""
+    },
+    {
+      "key": "o3RefundId",
+      "value": ""
+    },
+    {
+      "key": "cartOrderId",
+      "value": ""
+    },
+    {
+      "key": "cartOrderNo",
+      "value": ""
+    },
+    {
+      "key": "digitalItemId",
+      "value": ""
+    },
+    {
+      "key": "boxOrderId",
+      "value": ""
+    },
+    {
+      "key": "boxOrderNo",
+      "value": ""
+    },
+    {
+      "key": "boxPaymentNo",
+      "value": ""
+    },
+    {
+      "key": "pwUsername",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0-准备（必须先跑）",
+      "description": "注册管理员测试号（已存在可忽略）、登录两个账号存 token、建一条收货地址。\n若库中 admintest 还不是管理员，执行：UPDATE music_system.sys_user SET role='admin' WHERE username='admintest';",
+      "item": [
+        {
+          "name": "0.1 注册管理员测试号（已存在则忽略）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('注册成功或用户名已存在均可', () => {",
+                  "  pm.expect([200, 500]).to.include(res.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"admintest\",\"password\":\"admin123\",\"confirmPassword\":\"admin123\",\"nickname\":\"admintest\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "0.2 登录普通用户 test01 → 存 userToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('登录成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('userToken', res.data.token);",
+                  "pm.test('角色为 user', () => res.data.userInfo.role === 'user');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"test01\",\"password\":\"123456\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "0.3 登录管理员 admintest → 存 adminToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('登录成功（若失败请检查是否已执行提权 SQL）', () => res.code === 200);",
+                  "pm.collectionVariables.set('adminToken', res.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"admintest\",\"password\":\"admin123\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "0.4 新增收货地址 → 存 addressId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('新增成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('addressId', String(res.data));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/address/add",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"receiverName\":\"PM Tester\",\"receiverPhone\":\"13800001234\",\"province\":\"Beijing\",\"city\":\"Beijing\",\"district\":\"Haidian\",\"detailAddress\":\"PM Street No.1\",\"isDefault\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "1-批次1 状态统一+超时关单 (F-4.9/F-4.4)",
+      "description": "超时关单无法在 Postman 里等 15 分钟：跑完 1.1 拿到 d1OrderNo 后（不要取消它），在数据库执行 UPDATE music_system.order_info SET expire_time=NOW()-INTERVAL 5 MINUTE WHERE order_no='{{d1OrderNo 的值}}'; 然后 ≤1 分钟内再查该订单详情，statusText 应变为 已取消。下面 1.2~1.4 验证数字订单手动取消链路。",
+      "item": [
+        {
+          "name": "1.1 创建数字订单（不传地址）→ 存 d1OrderNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('下单成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('d1OrderNo', res.data.orderNo);",
+                  "pm.test('待支付', () => res.data.statusText === '待支付');",
+                  "pm.test('无收货人（数字商品）', () => res.data.receiverName === null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{digitalAlbumId}},\"quantity\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "1.2 [负例] 数字订单带地址被拒",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('业务拒绝', () => res.code === 500);",
+                  "pm.test('提示数字商品无需地址', () => res.message.includes('数字商品无需填写收货地址'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{digitalAlbumId}},\"quantity\":1,\"addressId\":{{addressId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "1.3 取消数字订单（二期放开）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('取消成功', () => res.code === 200 && res.message === '订单已取消');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/cancel/{{d1OrderNo}}"
+          }
+        },
+        {
+          "name": "1.4 订单详情 → 已取消",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('状态为已取消(3)', () => {",
+                  "  pm.expect(res.data.statusText).to.equal('已取消');",
+                  "  pm.expect(res.data.status).to.equal(3);",
+                  "});",
+                  "pm.test('记录了取消时间', () => res.data.cancelTime !== null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{d1OrderNo}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2-批次2 退款闭环·通过链路 (F-4.1)",
+      "description": "实物订单 → 支付回调 → 申请退款 → 管理员通过 → 订单变已退款。审核通过后可自行到数据库确认四处一致：order_info.status=5、payment.status=3、refund_application.status=3、album 库存回补且 stock_log 有 type=2。",
+      "item": [
+        {
+          "name": "2.1 创建实物订单 → 存 o2OrderId/o2OrderNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('下单成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o2OrderId', String(res.data.id));",
+                  "pm.collectionVariables.set('o2OrderNo', res.data.orderNo);",
+                  "pm.test('待支付', () => res.data.statusText === '待支付');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{physicalAlbumId1}},\"quantity\":1,\"addressId\":{{addressId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2.2 创建支付 → 存 o2PaymentNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('创建支付成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o2PaymentNo', res.data.paymentNo);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o2OrderId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2.3 模拟支付 mock-pay",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('模拟支付成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/mock-pay/{{o2PaymentNo}}"
+          }
+        },
+        {
+          "name": "2.4 订单详情 → 已支付",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('已支付(1)', () => res.data.status === 1 && res.data.statusText === '已支付');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{o2OrderNo}}"
+          }
+        },
+        {
+          "name": "2.5 申请退款 → 存 o2RefundId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('申请成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o2RefundId', String(res.data.id));",
+                  "pm.test('待审核(0)', () => res.data.status === 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/apply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o2OrderId}},\"reason\":\"postman refund test\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2.6 管理员审核通过（同事务执行退款）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('审核完成', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/admin/{{o2RefundId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"approved\":true,\"auditRemark\":\"postman approve\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2.7 订单详情 → 已退款(5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('订单已退款(5)', () => res.data.status === 5 && res.data.statusText === '已退款');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{o2OrderNo}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3-批次2 退款闭环·拒绝链路+重新申请",
+      "description": "拒绝分支：仅申请状态变化，订单/支付/库存零副作用；被拒后可重新申请。",
+      "item": [
+        {
+          "name": "3.1 创建实物订单2 → 存 o3OrderId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('下单成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o3OrderId', String(res.data.id));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{physicalAlbumId2}},\"quantity\":1,\"addressId\":{{addressId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.2 创建支付 → 存 o3PaymentNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('创建支付成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o3PaymentNo', res.data.paymentNo);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o3OrderId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.3 模拟支付 mock-pay",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('模拟支付成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/mock-pay/{{o3PaymentNo}}"
+          }
+        },
+        {
+          "name": "3.4 申请退款 → 存 o3RefundId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('申请成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('o3RefundId', String(res.data.id));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/apply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o3OrderId}},\"reason\":\"postman reject test\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.5 管理员审核拒绝",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('审核完成', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/admin/{{o3RefundId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"approved\":false,\"auditRemark\":\"postman reject\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.6 订单详情 → 仍是已支付（拒绝零副作用）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('订单未受影响，仍已支付(1)', () => res.data.status === 1);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{o3OrderId}}"
+          }
+        },
+        {
+          "name": "3.7 [负例后正向] 被拒后重新申请 → 成功",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('可重新提交申请', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/apply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o3OrderId}},\"reason\":\"postman re-apply test\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4-批次3 购物车合并结算 (F-4.3)",
+      "description": "2 实物 + 1 数字合并为一张 3 明细订单；明细级数字取阅；任一数字明细取阅后整单拒退。",
+      "item": [
+        {
+          "name": "4.1 清空购物车",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/clear"
+          }
+        },
+        {
+          "name": "4.2 加购实物1（数量1）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('加购成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/add",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{physicalAlbumId1}},\"quantity\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.3 加购实物2（数量2）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('加购成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/add",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{physicalAlbumId2}},\"quantity\":2}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.4 加购数字专辑（数量1）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('加购成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/cart/add",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"albumId\":{{digitalAlbumId}},\"quantity\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.5 合并结算 → 存 cartOrderId/cartOrderNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('结算成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('cartOrderId', String(res.data.id));",
+                  "pm.collectionVariables.set('cartOrderNo', res.data.orderNo);",
+                  "pm.test('总金额大于0', () => Number(res.data.totalAmount) > 0);",
+                  "pm.test('待支付', () => res.data.statusText === '待支付');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/createFromCart",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"addressId\":{{addressId}},\"remark\":\"postman batch3\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.6 查询订单明细（应为3条）→ 存数字明细 id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "pm.test('共3条明细', () => res.data.length === 3);",
+                  "const digital = res.data.find(i => i.productType === 'DIGITAL');",
+                  "pm.test('包含数字明细', () => !!digital);",
+                  "pm.collectionVariables.set('digitalItemId', String(digital.id));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{cartOrderNo}}/items"
+          }
+        },
+        {
+          "name": "4.7 创建支付",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('创建支付成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('cartPaymentNo', res.data.paymentNo);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{cartOrderId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.8 模拟支付",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('模拟支付成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/mock-pay/{{cartPaymentNo}}"
+          }
+        },
+        {
+          "name": "4.9 明细级取阅数字内容 → 返回地址",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('取阅成功', () => res.code === 200);",
+                  "pm.test('返回内容地址', () => typeof res.data === 'string' && res.data.length > 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{cartOrderNo}}/digital-content/{{digitalItemId}}"
+          }
+        },
+        {
+          "name": "4.10 [负例] 数字明细已取阅 → 整单拒退",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('业务拒绝', () => res.code === 500);",
+                  "pm.test('提示数字内容已交付', () => res.message.includes('数字内容已交付'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/refund/apply",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{cartOrderId}},\"reason\":\"postman gate test\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5-批次4 盲盒+模拟支付 (F-4.2/F-4.8)",
+      "description": "盲盒单抽下单（下单即预留库存）→ 模拟支付 → 同事务抽取 → drawSummary 回写；重复模拟支付幂等。若提示库存不足，请后台新建盲盒并修改集合变量 testBoxId。",
+      "item": [
+        {
+          "name": "5.1 [负例] 不传地址被拒",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('参数校验拒绝(400)', () => res.code === 400);",
+                  "pm.test('提示必须选择收货地址', () => res.message.includes('收货地址'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/blind-box/order",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"boxId\":{{testBoxId}},\"drawCount\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "5.2 盲盒单抽下单 → 存 boxOrderId/boxOrderNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('下单成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('boxOrderId', String(res.data.id));",
+                  "pm.collectionVariables.set('boxOrderNo', res.data.orderNo);",
+                  "pm.test('盲盒订单 orderType=2', () => res.data.orderType === 2);",
+                  "pm.test('待支付', () => res.data.statusText === '待支付');",
+                  "pm.test('有收货人（奖品为实物）', () => res.data.receiverName !== null);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/blind-box/order",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"boxId\":{{testBoxId}},\"drawCount\":1,\"addressId\":{{addressId}},\"remark\":\"postman batch4\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "5.3 创建支付 → 存 boxPaymentNo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('创建支付成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('boxPaymentNo', res.data.paymentNo);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{boxOrderId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "5.4 模拟支付（支付即抽取）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('模拟支付成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/mock-pay/{{boxPaymentNo}}"
+          }
+        },
+        {
+          "name": "5.5 订单详情 → 已支付且 drawSummary 有抽取结果",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('已支付(1)', () => res.data.status === 1);",
+                  "pm.test('抽取结果摘要已回写', () => typeof res.data.drawSummary === 'string' && res.data.drawSummary.length > 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/order/{{boxOrderNo}}"
+          }
+        },
+        {
+          "name": "5.6 [负例] 重复模拟支付被拒（幂等）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('重复支付被拒', () => res.code === 500);",
+                  "pm.test('提示状态不可支付', () => res.message.includes('不可支付'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/mock-pay/{{boxPaymentNo}}"
+          }
+        },
+        {
+          "name": "5.7 我的抽取记录（应含本轮记录）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "pm.test('至少有1条抽取记录', () => Number(res.data.total) >= 1);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/blind-box/my/records?current=1&size=10"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6-批次5 资料/密码/后台订单/统计 (F-4.5/4.6/4.7)",
+      "description": "资料修改与校验、密码修改全分支（用临时注册用户保证可重复运行）、后台订单列表与筛选、运营统计。",
+      "item": [
+        {
+          "name": "6.1 修改个人资料",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('更新成功', () => res.code === 200);",
+                  "pm.test('昵称已生效', () => res.data.nickname === 'pmtester01');",
+                  "pm.test('username 未被修改', () => res.data.username === 'test01');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"nickname\":\"pmtester01\",\"phone\":\"13900001111\",\"email\":\"test01@mail.com\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.2 [负例] 手机号被其他账号占用",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('业务拒绝', () => res.code === 500);",
+                  "pm.test('提示已被占用', () => res.message.includes('已被其他账号使用'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/profile",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"phone\":\"13900001111\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.3 注册密码测试用户（时间戳后缀，可重复跑）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('注册成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"pw{{$timestamp}}\",\"password\":\"oldpass12\",\"confirmPassword\":\"oldpass12\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.4 登录密码测试用户 → 存 pwUsername/pwToken",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('登录成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('pwUsername', res.data.userInfo.username);",
+                  "pm.collectionVariables.set('pwToken', res.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{pwUsername}}\",\"password\":\"oldpass12\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.5 [负例] 旧密码错误",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('拒绝', () => res.code === 500);",
+                  "pm.test('提示旧密码不正确', () => res.message.includes('旧密码不正确'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pwToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"oldPassword\":\"wrongpass1\",\"newPassword\":\"newpass99\",\"confirmPassword\":\"newpass99\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.6 [负例] 新密码强度不足（无数字）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('拒绝', () => res.code === 500);",
+                  "pm.test('提示强度要求', () => res.message.includes('8-20位'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pwToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"oldPassword\":\"oldpass12\",\"newPassword\":\"onlyletters\",\"confirmPassword\":\"onlyletters\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.7 改密成功",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('修改成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pwToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"oldPassword\":\"oldpass12\",\"newPassword\":\"newpass99\",\"confirmPassword\":\"newpass99\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.8 [负例] 旧密码已无法登录",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('旧密码登录失败', () => res.code === 500);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{pwUsername}}\",\"password\":\"oldpass12\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.9 新密码可登录",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('新密码登录成功', () => res.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{pwUsername}}\",\"password\":\"newpass99\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "6.10 后台订单列表（含 username）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "pm.test('返回分页结构', () => res.data.records !== undefined && res.data.total !== undefined);",
+                  "if (res.data.records.length > 0) {",
+                  "  pm.test('行内包含下单用户名', () => typeof res.data.records[0].username === 'string');",
+                  "  pm.test('行内包含状态文案', () => typeof res.data.records[0].statusText === 'string');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders?current=1&size=10"
+          }
+        },
+        {
+          "name": "6.11 [负例] 普通用户访问后台订单 → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('403 无权限', () => res.code === 403);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders?current=1&size=10"
+          }
+        },
+        {
+          "name": "6.12 后台订单按状态=已退款(5)筛选",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "pm.test('筛选结果全部为已退款', () => res.data.records.every(r => r.status === 5));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/orders?current=1&size=10&status=5"
+          }
+        },
+        {
+          "name": "6.13 运营概览（六项指标）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "['todayOrders','todaySalesAmount','totalUsers','onSaleAlbums','lowStockCount','blindBoxRemainTotal'].forEach(k => {",
+                  "  pm.test('指标 ' + k + ' 存在', () => res.data[k] !== undefined);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/stats/overview"
+          }
+        },
+        {
+          "name": "6.14 专辑销量 TOP10",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "pm.test('不超过10条', () => res.data.length <= 10);",
+                  "pm.test('按销量倒序', () => {",
+                  "  for (let i = 1; i < res.data.length; i++) {",
+                  "    if (res.data[i-1].sales < res.data[i].sales) { throw new Error('顺序错误'); }",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/stats/albums-top"
+          }
+        },
+        {
+          "name": "6.15 头像上传（需手动选本地 PNG/JPG）",
+          "description": "Postman 不允许脚本指定本地文件：请打开此请求 → Body → form-data → file 字段 → Select Files 选择一张真实 PNG/JPG 后手动发送。预期 200 并返回 /media/image/... 路径；若用改过扩展名的假图片，预期 500「文件内容与图片格式不匹配」（魔数校验）。",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('上传成功或魔数拒绝（未选文件时此断言不适用）', () => {",
+                  "  pm.expect([200, 500]).to.include(res.code);",
+                  "});",
+                  "if (res.code === 200) {",
+                  "  pm.test('返回 /media 路径', () => res.data.url.startsWith('/media/image/'));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/user/avatar",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7-支付宝沙箱（真实渠道）",
+      "description": "真实支付宝沙箱链路。支付步骤需人工介入：\n1. 跑 7.1 拿到 payUrl，在浏览器打开 → 用沙箱买家账号（开放平台沙箱控制台-沙箱账号页查看）登录并支付。\n2. 跑 7.2 查询支付结果（内置查单补偿，支付成功后自动推进订单）→ status 应变为 1。\n3. 之后可走文件夹 2/3 的退款流程（这次会真实调用支付宝退款接口）。",
+      "item": [
+        {
+          "name": "7.1 创建支付宝沙箱支付（返回收银台地址）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('创建支付成功', () => res.code === 200);",
+                  "pm.collectionVariables.set('sandboxPaymentNo', res.data.paymentNo);",
+                  "pm.test('返回沙箱收银台地址', () => (res.data.payUrl || '').includes('alipay'));",
+                  "console.log('在浏览器打开此地址用沙箱买家账号支付:', res.data.payUrl);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/create",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"orderId\":{{o3OrderId}}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "7.2 查询支付结果（含查单补偿）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.code === 200);",
+                  "const res = pm.response.json();",
+                  "pm.test('查询成功', () => res.code === 200);",
+                  "console.log('支付状态（1=已支付，0=尚未支付）:', res.data.status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payment/query/{{sandboxPaymentNo}}"
+          }
+        }
+      ]
+    }
+  ]
+}
