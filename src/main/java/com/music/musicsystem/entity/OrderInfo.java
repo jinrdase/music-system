@@ -26,6 +26,15 @@ public class OrderInfo {
     private BigDecimal totalAmount;
     private Integer status;
 
+    /** 订单形态：1-专辑订单，2-盲盒订单 */
+    private Integer orderType;
+    /** 盲盒订单关联的盲盒ID */
+    private Long blindBoxId;
+    /** 盲盒订单抽取次数（1或10） */
+    private Integer drawCount;
+    /** 盲盒抽取结果摘要 */
+    private String drawSummary;
+
     // 新增：收货地址快照
     private String receiverName;
     private String receiverPhone;

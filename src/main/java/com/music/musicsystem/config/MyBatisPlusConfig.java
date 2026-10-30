@@ -1,8 +1,11 @@
 
 package com.music.musicsystem.config;
 
+import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -34,6 +37,9 @@ public class MyBatisPlusConfig {
         globalConfig.setMetaObjectHandler(metaObjectHandler());
         factory.setGlobalConfig(globalConfig);
 
+        // 自定义 SqlSessionFactory 会使 starter 自动装配退避，分页插件必须手动挂载
+        factory.setPlugins(mybatisPlusInterceptor());
+
         MybatisConfiguration configuration = new MybatisConfiguration();
 
         configuration.setMapUnderscoreToCamelCase(true);
@@ -44,6 +50,17 @@ public class MyBatisPlusConfig {
         factory.setConfiguration(configuration);
 
         return factory.getObject();
+    }
+
+    /**
+     * MyBatis-Plus 内置拦截器链：注册 MySQL 方言的分页插件，
+     * 使 selectPage 自动执行 COUNT 查询并追加 LIMIT 子句。
+     */
+    @Bean
+    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+        MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        return interceptor;
     }
     /**
      * 创建用于自动填充审计时间字段的处理器。

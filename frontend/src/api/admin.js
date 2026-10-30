@@ -10,5 +10,4 @@ export const userRole = (id, role) => request.put(`/admin/users/${id}/role`, { r
 export const pendingRefunds = params => request.get('/refund/admin/pending', { params })
 export const reviewRefund = (id, body) => request.put(`/refund/admin/${id}/review`, body)
 export const shipOrder = (no, body) => request.put(`/order/ship/${encodeURIComponent(no)}`, body)
-export const auditLogs = params => request.get('/admin/audit-logs', { params })
 export const uploadMedia = (kind, file) => { const body = new FormData(); body.append('file', file); return request.post(`/admin/media/${kind}`, body) }

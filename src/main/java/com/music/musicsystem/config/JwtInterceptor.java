@@ -35,7 +35,7 @@ public class JwtInterceptor implements HandlerInterceptor {
             token = token.substring(7);
         }
 
-        // 3. 楠岃瘉 Token
+        // 3. 解析 Token
         try {
             if (jwtUtil.isTokenExpired(token)) {
                 throw new BusinessException(401, "登录令牌已过期，请重新登录");

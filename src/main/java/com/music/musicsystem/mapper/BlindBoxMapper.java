@@ -23,4 +23,10 @@ public interface BlindBoxMapper extends BaseMapper<BlindBox> {
      * 原子扣减盲盒奖品库存，并返回受影响行数。
      */
     int deductStock(@Param("boxId") Long boxId, @Param("count") Integer count);
+
+    /**
+     * 原子回补盲盒库存（订单取消/超时/退款/抽取失败自动退款时使用），返回受影响行数。
+     */
+    @Update("UPDATE blind_box SET remain_count = remain_count + #{count} WHERE id = #{boxId}")
+    int restoreStock(@Param("boxId") Long boxId, @Param("count") Integer count);
 }

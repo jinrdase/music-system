@@ -1,6 +1,7 @@
 package com.music.musicsystem.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.music.musicsystem.common.constant.OrderStatus;
 import com.music.musicsystem.entity.OrderInfo;
 import com.music.musicsystem.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
@@ -33,8 +34,8 @@ public class OrderTimeoutTask {
         try {
             // 查询超时未支付的订单
             LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(OrderInfo::getStatus, 0)  // 订单状态：0-未支
-                    .lt(OrderInfo::getExpireTime, LocalDateTime.now());  // 过期时间早于当前时间
+            wrapper.eq(OrderInfo::getStatus, OrderStatus.UNPAID)
+                    .lt(OrderInfo::getExpireTime, LocalDateTime.now());
 
             List<OrderInfo> expiredOrders = orderService.list(wrapper);
 

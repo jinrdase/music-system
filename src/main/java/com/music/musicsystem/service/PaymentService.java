@@ -23,12 +23,7 @@ public interface PaymentService {
     PaymentResultVO queryPaymentResult(String paymentNo);
 
     /**
-     * 微信支付回调。
-     */
-    void wechatPayCallback(Map<String, String> params);
-
-    /**
-     * 支付宝支付回
+     * 支付宝支付回调（异步通知）。
      */
     void alipayCallback(Map<String, String> params);
 
@@ -36,4 +31,9 @@ public interface PaymentService {
      * 取消支付
      */
     void cancelPayment(Long userId, String paymentNo);
+
+    /**
+     * 模拟支付确认（开发/演示环境）：与真实回调共用同一套支付成功处理逻辑。
+     */
+    void mockPay(Long userId, String paymentNo);
 }

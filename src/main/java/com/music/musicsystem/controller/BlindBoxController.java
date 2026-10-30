@@ -3,13 +3,16 @@ package com.music.musicsystem.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.music.musicsystem.common.exception.BusinessException;
 import com.music.musicsystem.common.result.Result;
+import com.music.musicsystem.dto.BlindBoxOrderDTO;
 import com.music.musicsystem.entity.BlindBox;
 import com.music.musicsystem.entity.BlindBoxPrize;
 import com.music.musicsystem.service.IBlindBoxService;
 import com.music.musicsystem.vo.BlindBoxDetailVO;
 import com.music.musicsystem.vo.BlindBoxVO;
+import com.music.musicsystem.vo.OrderVO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -59,5 +62,15 @@ public class BlindBoxController {
             HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         return Result.success(blindBoxService.getMyDrawRecords(userId, current, size));
+    }
+
+    /**
+     * 购买盲盒：生成待支付盲盒订单（order_type=2，15 分钟时效），返回后跳转支付。
+     */
+    @PostMapping("/order")
+    public Result<OrderVO> buyBlindBox(@Validated @RequestBody BlindBoxOrderDTO dto,
+                                       HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        return Result.success("盲盒订单创建成功", blindBoxService.createBlindBoxOrder(userId, dto));
     }
 }

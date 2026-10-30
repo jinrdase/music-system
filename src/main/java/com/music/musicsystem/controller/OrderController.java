@@ -3,14 +3,18 @@ package com.music.musicsystem.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.music.musicsystem.common.exception.BusinessException;
 import com.music.musicsystem.common.result.Result;
+import com.music.musicsystem.dto.CreateFromCartDTO;
 import com.music.musicsystem.dto.CreateOrderDTO;
 import com.music.musicsystem.dto.ShipOrderDTO;
 import com.music.musicsystem.service.OrderService;
+import com.music.musicsystem.vo.OrderItemVO;
 import com.music.musicsystem.vo.OrderVO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * 处理用户订单查询、创建及数字内容交付请求。
@@ -34,6 +38,19 @@ public class OrderController {
         Long userId = (Long) request.getAttribute("userId");
         OrderVO orderVO = orderService.createOrder(userId, dto);
         return Result.success("下单成功", orderVO);
+    }
+
+    /**
+     * 购物车合并结算：已勾选商品合并为一张多明细订单。
+     */
+    @PostMapping("/createFromCart")
+    public Result<OrderVO> createFromCart(
+            @Validated @RequestBody CreateFromCartDTO dto,
+            HttpServletRequest request
+    ) {
+        Long userId = (Long) request.getAttribute("userId");
+        OrderVO orderVO = orderService.createFromCart(userId, dto);
+        return Result.success("结算成功", orderVO);
     }
 
     /**
@@ -113,5 +130,29 @@ public class OrderController {
     public Result<String> getDigitalContent(@PathVariable String orderNo, HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         return Result.success(orderService.getDigitalContent(userId, orderNo));
+    }
+
+    /**
+     * 订单明细列表（订单所有者或管理员；历史单商品订单合成单条返回）。
+     */
+    @GetMapping("/{orderNo}/items")
+    public Result<List<OrderItemVO>> getOrderItems(@PathVariable String orderNo, HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        String role = (String) request.getAttribute("role");
+        boolean isAdmin = "admin".equalsIgnoreCase(role) || "super_admin".equalsIgnoreCase(role);
+        return Result.success(orderService.getOrderItems(userId, orderNo, isAdmin));
+    }
+
+    /**
+     * 明细级数字内容取阅：一张订单中的每件数字商品独立取阅。
+     */
+    @GetMapping("/{orderNo}/digital-content/{itemId}")
+    public Result<String> getDigitalContentByItem(
+            @PathVariable String orderNo,
+            @PathVariable Long itemId,
+            HttpServletRequest request
+    ) {
+        Long userId = (Long) request.getAttribute("userId");
+        return Result.success(orderService.getDigitalContentByItem(userId, orderNo, itemId));
     }
 }

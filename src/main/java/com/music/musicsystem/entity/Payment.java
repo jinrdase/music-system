@@ -26,7 +26,6 @@ public class Payment {
 
     private BigDecimal amount; // 支付金额
 
-    private Integer paymentMethod; // 支付方式-微信-支付宝，3-余额
 
     private Integer status; // 支付状态：0-待支付，1-支付成功-支付失败-已退
 

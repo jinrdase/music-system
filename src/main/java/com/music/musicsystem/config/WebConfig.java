@@ -18,9 +18,6 @@ public class WebConfig implements WebMvcConfigurer {
     @Autowired
     private JwtInterceptor jwtInterceptor;
 
-    @Autowired
-    private AdminAuditInterceptor adminAuditInterceptor;
-
     @Value("${music.upload.directory:${user.home}/music-system-uploads}")
     private String uploadDirectory;
     /**
@@ -37,7 +34,6 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/test/**",         // 放行测试接口
                         "/api/payment/notify/**"  // 放行支付回调
                 );
-        registry.addInterceptor(adminAuditInterceptor).addPathPatterns("/api/**");
     }
     /**
      * 配置静态资源的访问映射。

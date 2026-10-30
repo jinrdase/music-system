@@ -277,7 +277,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         CartItemVO vo = new CartItemVO();
         BeanUtils.copyProperties(cart, vo);
 
-        // 鏍￠獙鍟嗗搧鏈夋晥鎬
+        //
         Album album = albumMapper.selectById(cart.getAlbumId());
         if (album == null || album.getStatus() != 1) {
             vo.setIsValid(0);

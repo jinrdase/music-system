@@ -1,7 +1,11 @@
 package com.music.musicsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.music.musicsystem.common.constant.OrderStatus;
+import com.music.musicsystem.common.constant.ProductType;
+import com.music.musicsystem.dto.BlindBoxOrderDTO;
 import com.music.musicsystem.dto.DrawRequestDTO;
 import com.music.musicsystem.dto.BlindBoxCreateDTO;
 import com.music.musicsystem.dto.BlindBoxPrizeDTO;
@@ -12,6 +16,7 @@ import com.music.musicsystem.service.IBlindBoxService;
 import com.music.musicsystem.vo.BlindBoxVO;
 import com.music.musicsystem.vo.DrawRecordVO;
 import com.music.musicsystem.vo.DrawResultVO;
+import com.music.musicsystem.vo.OrderVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -43,6 +48,8 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
     private final BlindBoxPrizeMapper prizeMapper;
     private final DrawRecordMapper drawRecordMapper;
     private final UserDrawStatMapper statMapper;
+    private final OrderInfoMapper orderInfoMapper;
+    private final UserAddressMapper userAddressMapper;
     private final StringRedisTemplate redisTemplate;
     private final RedissonClient redissonClient;
 
@@ -268,7 +275,135 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
             throw new BusinessException("盲盒已下架");
         }
 
-        // 3. 使用分布式锁防止并发问题
+        return doDrawLocked(userId, blindBox, drawCount, true);
+    }
+
+    /**
+     * 购买盲盒：校验库存与地址后双层扣减库存（Redis 预扣 + MySQL 条件更新，下单即预留），
+     * 生成待支付盲盒订单（order_type=2，15 分钟时效）。支付成功后由回调事务内抽取，
+     * 不支付则由超时任务取消并回补预留库存。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public OrderVO createBlindBoxOrder(Long userId, BlindBoxOrderDTO dto) {
+        Integer drawCount = dto.getDrawCount();
+        if (drawCount == null || (drawCount != 1 && drawCount != 10)) {
+            throw new BusinessException("抽取次数只能是1次或10次");
+        }
+        BlindBox box = blindBoxMapper.selectById(dto.getBoxId());
+        if (box == null || !Integer.valueOf(1).equals(box.getStatus())) {
+            throw new BusinessException("盲盒不存在或已下架");
+        }
+        if (box.getRemainCount() < drawCount) {
+            throw new BusinessException("盲盒库存不足");
+        }
+
+        // 奖品为实物周边：必须关联本人收货地址
+        UserAddress address = userAddressMapper.selectById(dto.getAddressId());
+        if (address == null || address.getDeleted() == 1) {
+            throw new BusinessException("收货地址不存在");
+        }
+        if (!address.getUserId().equals(userId)) {
+            throw new BusinessException("无权使用此地址");
+        }
+
+        // 用户级分布式锁内执行双层库存扣减（锁粒度：用户+盲盒，与抽取互斥）
+        String lockKey = LOCK_KEY_PREFIX + userId + ":" + box.getId();
+        RLock lock = redissonClient.getLock(lockKey);
+        try {
+            boolean locked = lock.tryLock(5, TimeUnit.SECONDS);
+            if (!locked) {
+                throw new BusinessException("操作过于频繁，请稍后再试");
+            }
+
+            String stockKey = STOCK_KEY_PREFIX + box.getId();
+            if (!Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
+                redisTemplate.opsForValue().set(stockKey, String.valueOf(box.getRemainCount()));
+            }
+            Long remain = redisTemplate.opsForValue().decrement(stockKey, drawCount);
+            if (remain == null || remain < 0) {
+                redisTemplate.opsForValue().increment(stockKey, drawCount);
+                throw new BusinessException("盲盒库存不足");
+            }
+            if (blindBoxMapper.deductStock(box.getId(), drawCount) == 0) {
+                redisTemplate.opsForValue().increment(stockKey, drawCount);
+                throw new BusinessException("盲盒库存不足");
+            }
+
+            OrderInfo order = new OrderInfo();
+            order.setOrderNo("BB" + System.currentTimeMillis() + (int) (Math.random() * 10000));
+            order.setUserId(userId);
+            order.setOrderType(2);
+            order.setBlindBoxId(box.getId());
+            order.setDrawCount(drawCount);
+            // album_* 列为旧结构兼容列：album_id 写盲盒关联专辑，标题写盲盒名（真实语义是盲盒订单）
+            order.setAlbumId(box.getAlbumId());
+            order.setAlbumTitle(box.getName());
+            order.setPrice(box.getPrice());
+            order.setQuantity(drawCount);
+            order.setTotalAmount(box.getPrice().multiply(new BigDecimal(drawCount)));
+            order.setStatus(OrderStatus.UNPAID);
+            order.setExpireTime(LocalDateTime.now().plusMinutes(15));
+            order.setRemark(dto.getRemark());
+            order.setProductType(ProductType.PHYSICAL);
+            order.setReceiverName(address.getReceiverName());
+            order.setReceiverPhone(address.getReceiverPhone());
+            order.setReceiverProvince(address.getProvince());
+            order.setReceiverCity(address.getCity());
+            order.setReceiverDistrict(address.getDistrict());
+            order.setReceiverAddress(address.getDetailAddress());
+            orderInfoMapper.insert(order);
+
+            log.info("盲盒订单创建成功：订单号={}, 用户={}, 盲盒={}, 抽数={}, 金额={}",
+                    order.getOrderNo(), userId, box.getId(), drawCount, order.getTotalAmount());
+            return toOrderVO(order);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("系统繁忙，请稍后再试");
+        } finally {
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 盲盒订单支付成功后的抽取：消耗下单时预留的库存，不再重复扣减。
+     * 在支付成功事务内调用（不自带 @Transactional：异常需向上穿透而不标记回滚-only，
+     * 由调用方 catch 后执行自动退款）；无订单调用方时由外层事务保证原子性。
+     */
+    @Override
+    public DrawResultVO drawForOrder(OrderInfo order) {
+        BlindBox blindBox = blindBoxMapper.selectById(order.getBlindBoxId());
+        if (blindBox == null) {
+            throw new BusinessException("盲盒不存在，无法执行抽取");
+        }
+        return doDrawLocked(order.getUserId(), blindBox, order.getDrawCount(), false);
+    }
+
+    /**
+     * 回补盲盒订单预留的库存（取消/超时/退款/抽取失败自动退款共用）。
+     * MySQL 原子自增 + Redis 计数回补，均为原子操作，无需分布式锁。
+     */
+    @Override
+    public void restoreOrderStock(OrderInfo order) {
+        Integer count = order.getDrawCount() != null ? order.getDrawCount() : order.getQuantity();
+        if (blindBoxMapper.restoreStock(order.getBlindBoxId(), count) == 0) {
+            log.warn("盲盒库存回补影响0行：boxId={}, orderNo={}", order.getBlindBoxId(), order.getOrderNo());
+        }
+        String stockKey = STOCK_KEY_PREFIX + order.getBlindBoxId();
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
+            redisTemplate.opsForValue().increment(stockKey, count);
+        }
+        log.info("盲盒订单库存回补完成：订单号={}, 盲盒={}, 数量={}", order.getOrderNo(), order.getBlindBoxId(), count);
+    }
+
+    /**
+     * 抽取核心：用户级分布式锁 → 奖品配置校验 →（deductStock=true 时原子扣库存）→
+     * 保底计数 → 逐抽落库（概率快照+是否保底）→ 组装结果。
+     */
+    private DrawResultVO doDrawLocked(Long userId, BlindBox blindBox, Integer drawCount, boolean deductStock) {
+        Long boxId = blindBox.getId();
         String lockKey = LOCK_KEY_PREFIX + userId + ":" + boxId;
         RLock lock = redissonClient.getLock(lockKey);
 
@@ -285,8 +420,8 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
                 throw new BusinessException("盲盒暂无奖品配置");
             }
 
-            // 5. 在数据库事务中原子扣减库存。
-            if (!checkAndDeductStock(boxId, drawCount)) {
+            // 5. 独立抽取（无订单预留）时在数据库事务中原子扣减库存；订单支付触发的抽取消耗预留，不再扣减。
+            if (deductStock && !checkAndDeductStock(boxId, drawCount)) {
                 throw new BusinessException("盲盒库存不足");
             }
 
@@ -338,6 +473,16 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
                 lock.unlock();
             }
         }
+    }
+
+    /**
+     * 订单实体转 VO（含状态文案），供盲盒下单返回使用。
+     */
+    private OrderVO toOrderVO(OrderInfo order) {
+        OrderVO vo = new OrderVO();
+        BeanUtils.copyProperties(order, vo);
+        vo.setStatusText(OrderStatus.toText(order.getStatus()));
+        return vo;
     }
 
     /**

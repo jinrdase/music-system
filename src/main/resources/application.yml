@@ -6,6 +6,13 @@ spring:
   application:
     name: music-system
 
+  # 本地敏感配置（支付宝私钥等），文件已被 .gitignore 排除；不存在时忽略。
+  # 两个候选路径：兼容"工作目录=music-system 模块目录"与"工作目录=工作区根目录"两种启动方式（IDEA/命令行）。
+  config:
+    import:
+      - optional:file:./alipay-local.properties
+      - optional:file:./music-system/alipay-local.properties
+
   servlet:
     multipart:
       max-file-size: 100MB
@@ -13,9 +20,9 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3307/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3308/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: root
+    password: myroot
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20
@@ -46,3 +53,23 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000
   refresh-expiration: 1209600000
+
+pay:
+  # 模拟支付开关（F-4.8）：仅开发/演示环境开启，生产部署必须置 false（接口会直接拒绝）
+  mock-enabled: true
+
+alipay:
+  # 沙箱网关（开放平台沙箱环境）
+  gateway: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  app-id: 9021000168627242
+  # 应用私钥（PKCS8）：优先读 alipay-local.properties（git 已排除），也可用环境变量 ALIPAY_APP_PRIVATE_KEY 注入
+  app-private-key: ${alipay.local.app-private-key:${ALIPAY_APP_PRIVATE_KEY:}}
+  # 支付宝公钥（用于回调验签，非机密）
+  alipay-public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAte3J2alz7i63Ekn+3SxPNtdhMJZUcmWUJFBJRm8gJ0orG/n+hUNoEWyFAhAnQOkvpHfSF8dh86xsyK90PCI+pecAS2ihjw0ZVu6vi9UbUTrb0dYXQ+TYtbJkCMMm8D+JIXqIWWErMKuSM90xamU3RhgbdEZgZpmPfKYzxwnKk3o+NVQ8e2zamcKW0hUl/kPF26WeIEhQC/U4aJSjtntlZxVtteUXOpJnyuK1ftWFRlexOY9/1vvoVdAfwynB6EvmAlYNA5Nrh+Ga7NR3bC3BhV5HVjuIprwBvfNpUBNe2iZNLO+mLbiUIKZp7M3OvBHiPQsM5VrBpxPXFtRpTESiyQIDAQAB
+  sign-type: RSA2
+  # 异步通知地址：沙箱要求公网可达；未配穿透时留空，由查单补偿（GET /api/payment/query 轮询）推进状态
+  notify-url: ""
+  # 支付成功后浏览器跳回的前端地址（可选）
+  return-url: ""
+  format: json
+  charset: UTF-8

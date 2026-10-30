@@ -59,20 +59,18 @@ public class PaymentController {
     }
 
     /**
-     * 微信支付回调（异步通知
+     * 模拟支付确认（开发/演示环境）：把待支付订单一键推进为已支付，走通完整演示链路。
      */
-    @PostMapping("/notify/wechat")
-    public String wechatPayNotify(@RequestParam Map<String, String> params) {
-        try {
-            paymentService.wechatPayCallback(params);
-            return "<xml><return_code><![CDATA[SUCCESS]]></return_code></xml>";
-        } catch (Exception e) {
-            return "<xml><return_code><![CDATA[FAIL]]></return_code></xml>";
-        }
+    @PostMapping("/mock-pay/{paymentNo}")
+    public Result<Void> mockPay(@PathVariable String paymentNo,
+                                HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        paymentService.mockPay(userId, paymentNo);
+        return Result.success("模拟支付成功", null);
     }
 
     /**
-     * 支付宝支付回调（异步通知
+     * 支付宝支付回调（异步通知；沙箱需公网地址，未配穿透时由查单补偿推进状态）
      */
     @PostMapping("/notify/alipay")
     public String alipayNotify(@RequestParam Map<String, String> params) {

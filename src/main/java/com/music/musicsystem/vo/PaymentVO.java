@@ -12,8 +12,6 @@ public class PaymentVO {
     private String paymentNo;
     private String orderNo;
     private BigDecimal amount;
-    private Integer paymentMethod;
-    private String qrCodeUrl; // 二维码URL（扫码支付）
-    private String payUrl; // H5鏀粯URL
-    private Long expireTime; // 过期时间戳（毫秒
+    private String payUrl; // 支付宝沙箱收银台地址（浏览器打开付款）
+    private Long expireTime; // 过期时间戳（毫秒)
 }

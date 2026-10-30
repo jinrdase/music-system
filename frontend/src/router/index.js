@@ -21,7 +21,6 @@ const routes = [
     { path: 'blindboxes', component: () => import('../views/admin/BlindboxManageView.vue') },
     { path: 'users', component: () => import('../views/admin/UserManageView.vue') },
     { path: 'orders', component: () => import('../views/admin/OrderManageView.vue') },
-    { path: 'audit-logs', component: () => import('../views/admin/AuditLogView.vue') }
   ] },
   { path: '/:pathMatch(.*)*', component: () => import('../views/NotFoundView.vue') }
 ]

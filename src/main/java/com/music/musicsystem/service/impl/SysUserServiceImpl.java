@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.music.musicsystem.common.exception.BusinessException;
+import com.music.musicsystem.dto.PasswordChangeDTO;
+import com.music.musicsystem.dto.ProfileUpdateDTO;
 import com.music.musicsystem.dto.UserLoginDTO;
 import com.music.musicsystem.dto.UserRegisterDTO;
 import com.music.musicsystem.entity.SysUser;
@@ -136,6 +138,85 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         BeanUtils.copyProperties(user, userVO);
 
         return new LoginVO(token, userVO);
+    }
+
+    /**
+     * 修改个人资料：格式校验 + 手机号/邮箱全库唯一（不含本人），username 不可修改。
+     */
+    @Override
+    public UserVO updateProfile(Long userId, ProfileUpdateDTO dto) {
+        SysUser user = this.getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+
+        if (dto.getNickname() != null) {
+            String nickname = dto.getNickname().trim();
+            if (nickname.length() < 2 || nickname.length() > 20) {
+                throw new BusinessException("昵称长度为2-20个字符");
+            }
+            user.setNickname(nickname);
+        }
+        if (dto.getPhone() != null) {
+            String phone = dto.getPhone().trim();
+            if (!phone.matches("^1[3-9]\\d{9}$")) {
+                throw new BusinessException("手机号格式不正确");
+            }
+            Long used = this.count(new LambdaQueryWrapper<SysUser>()
+                    .eq(SysUser::getPhone, phone)
+                    .ne(SysUser::getId, userId));
+            if (used > 0) {
+                throw new BusinessException("手机号已被其他账号使用");
+            }
+            user.setPhone(phone);
+        }
+        if (dto.getEmail() != null) {
+            String email = dto.getEmail().trim();
+            if (!email.matches("^[\\w.%+-]+@[\\w.-]+\\.[A-Za-z]{2,}$")) {
+                throw new BusinessException("邮箱格式不正确");
+            }
+            Long used = this.count(new LambdaQueryWrapper<SysUser>()
+                    .eq(SysUser::getEmail, email)
+                    .ne(SysUser::getId, userId));
+            if (used > 0) {
+                throw new BusinessException("邮箱已被其他账号使用");
+            }
+            user.setEmail(email);
+        }
+        if (dto.getAvatar() != null) {
+            user.setAvatar(dto.getAvatar().trim());
+        }
+
+        this.updateById(user);
+        UserVO vo = new UserVO();
+        BeanUtils.copyProperties(user, vo);
+        return vo;
+    }
+
+    /**
+     * 修改密码：旧密码校验、强度（8-20 位且同时包含字母与数字）、两次一致、不得与旧密码相同。
+     * 修改成功后旧 JWT 在有效期内仍可用（服务端无黑名单，课程范围内的可接受简化）。
+     */
+    @Override
+    public void changePassword(Long userId, PasswordChangeDTO dto) {
+        SysUser user = this.getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        if (!encryptPassword(dto.getOldPassword()).equals(user.getPassword())) {
+            throw new BusinessException("旧密码不正确");
+        }
+        if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
+            throw new BusinessException("两次输入的新密码不一致");
+        }
+        if (!dto.getNewPassword().matches("^(?=.*[A-Za-z])(?=.*\\d).{8,20}$")) {
+            throw new BusinessException("新密码需为8-20位且同时包含字母与数字");
+        }
+        if (dto.getNewPassword().equals(dto.getOldPassword())) {
+            throw new BusinessException("新密码不能与旧密码相同");
+        }
+        user.setPassword(encryptPassword(dto.getNewPassword()));
+        this.updateById(user);
     }
     /**
      * 校验注册信息并创建新用户。
