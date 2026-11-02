@@ -194,7 +194,7 @@
       const cover = safeUrl(album.coverUrl);
       const songs = listFrom(album.songs);
       $('#detail-content').innerHTML = `<div class="detail-header">${cover ? `<img class="detail-cover" src="${escapeHtml(cover)}" alt="">` : '<div class="album-cover cover-fallback">♫</div>'}<div><span class="tag ${album.productType === 'DIGITAL' ? 'digital' : ''}">${album.productType === 'DIGITAL' ? '数字专辑' : '实体专辑'}</span><h2>${escapeHtml(album.title)}</h2><p>${escapeHtml(album.artist)} · ¥${money(album.price)}</p><p>${escapeHtml(album.description || '暂无专辑介绍。')}</p><button class="button primary" data-action="buy" data-id="${Number(album.id)}">购买这张专辑</button></div></div>
-        <h3>曲目列表</h3>${songs.length ? songs.map(song => `<div class="track-row"><div><strong>${escapeHtml(song.trackNumber || '')}. ${escapeHtml(song.title)}</strong><small>${escapeHtml(song.artist || '')} · ${formatDuration(song.duration)}</small></div>${safeUrl(song.previewUrl) ? `<audio controls preload="none" data-song-id="${Number(song.id)}" src="${escapeHtml(safeUrl(song.previewUrl))}"></audio>` : '<span class="muted">暂无试听</span>'}</div>`).join('') : '<p>暂无曲目信息。</p>'}`;
+        <h3>曲目列表</h3>${songs.length ? songs.map(song => `<div class="track-row"><div><strong>${escapeHtml(song.trackNumber || '')}. ${escapeHtml(song.title)}</strong><small>${escapeHtml(song.artist || '')} · ${formatDuration(song.duration)}</small><small class="muted" data-audio-status role="status">${safeUrl(song.previewUrl) ? '' : '暂无试听音频，暂不可播放。'}</small></div>${safeUrl(song.previewUrl) ? `<audio controls preload="none" data-song-id="${Number(song.id)}" src="${escapeHtml(safeUrl(song.previewUrl))}"></audio>` : '<span class="muted">暂无试听</span>'}</div>`).join('') : '<p>暂无曲目信息。</p>'}`;
       $('#detail-dialog').showModal();
     } catch (error) { notify(error.message, 'error'); }
   }
@@ -539,10 +539,34 @@
 
   document.addEventListener('play', event => {
     const player = event.target.closest('audio[data-song-id]');
+    if (!player) return;
+    const status = player.closest('.track-row')?.querySelector('[data-audio-status]');
+    if (status) status.textContent = '正在加载试听音频…';
+  }, true);
+
+  document.addEventListener('playing', event => {
+    const player = event.target.closest('audio[data-song-id]');
+    if (!player) return;
+    const status = player.closest('.track-row')?.querySelector('[data-audio-status]');
+    if (status) status.textContent = '正在播放';
     if (player && state.token && !player.dataset.counted) {
       player.dataset.counted = '1';
       api(`/api/album/song/${Number(player.dataset.songId)}/play`, { method: 'POST' }).catch(() => {});
     }
+  }, true);
+
+  document.addEventListener('pause', event => {
+    const player = event.target.closest('audio[data-song-id]');
+    if (!player || player.ended) return;
+    const status = player.closest('.track-row')?.querySelector('[data-audio-status]');
+    if (status) status.textContent = '已暂停';
+  }, true);
+
+  document.addEventListener('error', event => {
+    const player = event.target.closest?.('audio[data-song-id]');
+    if (!player) return;
+    const status = player.closest('.track-row')?.querySelector('[data-audio-status]');
+    if (status) status.textContent = '试听音频加载失败：请检查地址或文件是否存在。';
   }, true);
 
   $('#health-check').addEventListener('click', async () => {

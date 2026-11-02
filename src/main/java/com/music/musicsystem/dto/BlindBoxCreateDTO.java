@@ -22,6 +22,9 @@ public class BlindBoxCreateDTO {
     @Size(max = 200, message = "盲盒名称不能超过200个字符")
     private String name;
 
+    @Size(max = 1000, message = "盲盒封面地址不能超过1000个字符")
+    private String coverUrl;
+
     @NotNull(message = "关联专辑不能为空")
     private Long albumId;
 

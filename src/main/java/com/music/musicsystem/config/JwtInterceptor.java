@@ -2,6 +2,7 @@ package com.music.musicsystem.config;
 
 import com.music.musicsystem.common.exception.BusinessException;
 import com.music.musicsystem.util.JwtUtil;
+import com.music.musicsystem.service.AdminAuditLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,9 @@ public class JwtInterceptor implements HandlerInterceptor {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private AdminAuditLogService adminAuditLogService;
     /**
      * 校验请求中的身份令牌，并向后续处理器传递用户身份。
      */
@@ -56,6 +60,34 @@ public class JwtInterceptor implements HandlerInterceptor {
             throw e;
         } catch (Exception e) {
             throw new BusinessException(401, "Token 无效，请重新登录");
+        }
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                                Object handler, Exception ex) {
+        String path = request.getRequestURI();
+        boolean adminApi = path.startsWith("/api/admin/")
+                && !path.startsWith("/api/admin/audit-logs");
+        // These administrative actions intentionally live outside /api/admin/**.
+        boolean adminOrderShipment = path.startsWith("/api/order/ship/");
+        boolean adminRefundAction = path.startsWith("/api/refund/admin/");
+        if (!adminApi && !adminOrderShipment && !adminRefundAction) {
+            return;
+        }
+        Object userId = request.getAttribute("userId");
+        String role = (String) request.getAttribute("role");
+        if (!(userId instanceof Long id)
+                || (!"admin".equalsIgnoreCase(role) && !"super_admin".equalsIgnoreCase(role))) {
+            return;
+        }
+        try {
+            adminAuditLogService.record(id, role, request.getMethod(), path,
+                    response.getStatus(), request.getRemoteAddr());
+        } catch (Exception auditFailure) {
+            // Auditing must not turn an otherwise completed admin request into a failure.
+            org.slf4j.LoggerFactory.getLogger(JwtInterceptor.class)
+                    .error("管理员审计日志写入失败：path={}, operatorId={}", path, id, auditFailure);
         }
     }
 }

@@ -11,3 +11,7 @@ export const pendingRefunds = params => request.get('/refund/admin/pending', { p
 export const reviewRefund = (id, body) => request.put(`/refund/admin/${id}/review`, body)
 export const shipOrder = (no, body) => request.put(`/order/ship/${encodeURIComponent(no)}`, body)
 export const uploadMedia = (kind, file) => { const body = new FormData(); body.append('file', file); return request.post(`/admin/media/${kind}`, body) }
+export const adminOrders = params => request.get('/admin/orders', { params })
+export const adminStats = () => request.get('/admin/stats/overview')
+export const albumTop = () => request.get('/admin/stats/albums-top')
+export const adminAuditLogs = params => request.get('/admin/audit-logs', { params })

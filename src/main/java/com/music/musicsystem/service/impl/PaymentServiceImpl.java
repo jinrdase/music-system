@@ -93,7 +93,9 @@ public class PaymentServiceImpl implements PaymentService {
             // 如果存在且未过期，返回已有支付
             if (existingPayment.getCreateTime().plusMinutes(15).isAfter(LocalDateTime.now())) {
                 PaymentVO vo = buildPaymentVO(existingPayment);
-                fillAlipayPayInfo(vo, existingPayment);
+                if (!mockEnabled) {
+                    fillAlipayPayInfo(vo, existingPayment);
+                }
                 vo.setExpireTime(System.currentTimeMillis() + PAYMENT_TIMEOUT);
                 return vo;
             }
@@ -114,7 +116,9 @@ public class PaymentServiceImpl implements PaymentService {
 
         // 4. 调用支付宝沙箱/正式网关，生成收银台地址
         PaymentVO vo = buildPaymentVO(payment);
-        fillAlipayPayInfo(vo, payment);
+        if (!mockEnabled) {
+            fillAlipayPayInfo(vo, payment);
+        }
         vo.setExpireTime(System.currentTimeMillis() + PAYMENT_TIMEOUT);
         return vo;
     }

@@ -7,5 +7,6 @@ export const confirmReceipt = no => request.post(`/order/confirmReceipt/${encode
 export const digitalContent = no => request.get(`/order/${encodeURIComponent(no)}/digital-content`)
 export const createPayment = payload => request.post('/payment/create', payload)
 export const queryPayment = no => request.get(`/payment/query/${encodeURIComponent(no)}`)
+export const mockPay = no => request.post(`/payment/mock-pay/${encodeURIComponent(no)}`)
 export const applyRefund = payload => request.post('/refund/apply', payload)
 export const myRefunds = params => request.get('/refund/my', { params })

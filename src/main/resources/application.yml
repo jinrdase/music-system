@@ -2,6 +2,10 @@
 server:
   port: 8080
 
+music:
+  upload:
+    directory: ${MUSIC_UPLOAD_DIRECTORY:${user.dir}/uploads}
+
 spring:
   application:
     name: music-system
@@ -20,9 +24,9 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3308/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3307/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: myroot
+    password: root
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20

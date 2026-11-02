@@ -1,6 +1,11 @@
 target/
 /uploads/
 /uploads/**
+!/uploads/
+!/uploads/image/
+/uploads/image/*
+!/uploads/image/album-*.jpg
+!/uploads/image/blindbox-*.jpg
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
@@ -31,6 +36,9 @@ target/
 /frontend/dist/
 /frontend/.vite/
 /frontend/.npm-cache/
+/frontend/test-results/
+/frontend/playwright-report/
+/.playwright/
 /nbdist/
 /.nb-gradle/
 build/
@@ -53,6 +61,7 @@ application-prod.yml
 application-prod.yaml
 # 支付宝沙箱私钥（本地覆盖文件，绝不提交）
 alipay-local.properties
+local-test-credentials/
 
 # .zcode
 .zcode/

@@ -19,6 +19,9 @@ public class BlindBoxVO {
      */
     private String name;
 
+    /** 商品展示封面图片地址。 */
+    private String coverUrl;
+
     /**
      * 关联专辑ID
      */

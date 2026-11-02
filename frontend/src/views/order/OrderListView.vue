@@ -1,11 +1,11 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { orders, cancelOrder, confirmReceipt, createPayment, queryPayment } from '../../api/order'
+import { orders, cancelOrder, confirmReceipt, createPayment, queryPayment, mockPay } from '../../api/order'
 import PageTitle from '../../components/PageTitle.vue'
 const rows=ref([]),loading=ref(false),page=ref(1),total=ref(0)
 async function load(){loading.value=true;try{const p=await orders({current:page.value,size:10});rows.value=p?.records||[];total.value=Number(p?.total||0)}finally{loading.value=false}}
-async function pay(row){const {value:method}=await ElMessageBox.prompt('选择支付方式：1 微信，2 支付宝，3 余额','创建支付',{inputValue:'1',inputPattern:/^[123]$/});const result=await createPayment({orderId:row.id,paymentMethod:Number(method)});ElMessage.info(`支付单 ${result.paymentNo||''} 已创建；当前后端为模拟支付，请使用状态查询。`);if(result.paymentNo){const status=await queryPayment(result.paymentNo);ElMessage.info(`当前支付状态：${status.status}`)}await load()}
+async function pay(row){const result=await createPayment({orderId:row.id});if(result.payUrl){window.open(result.payUrl,'_blank','noopener');ElMessage.info('已打开支付宝收银台')}else if(result.paymentNo){await mockPay(result.paymentNo);const status=await queryPayment(result.paymentNo);ElMessage.success(`模拟支付完成，支付状态：${status.status}`)}await load()}
 async function cancel(row){await ElMessageBox.confirm('确认取消未支付订单？');await cancelOrder(row.orderNo);ElMessage.success('订单已取消');load()}
 async function receive(row){await ElMessageBox.confirm('确认已收到商品？');await confirmReceipt(row.orderNo);ElMessage.success('已确认收货');load()}
 onMounted(load)

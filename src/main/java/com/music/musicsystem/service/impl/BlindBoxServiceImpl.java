@@ -103,6 +103,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
         }
         BlindBox box = new BlindBox();
         box.setName(dto.getName().trim());
+        box.setCoverUrl(dto.getCoverUrl());
         box.setAlbumId(dto.getAlbumId());
         box.setDescription(dto.getDescription());
         box.setPrice(dto.getPrice());
