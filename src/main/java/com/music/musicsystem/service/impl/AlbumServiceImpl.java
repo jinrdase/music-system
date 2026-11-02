@@ -1,6 +1,7 @@
 package com.music.musicsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.music.musicsystem.common.exception.BusinessException;
@@ -10,6 +11,7 @@ import com.music.musicsystem.entity.Song;
 import com.music.musicsystem.mapper.AlbumMapper;
 import com.music.musicsystem.mapper.SongMapper;
 import com.music.musicsystem.service.AlbumService;
+import com.music.musicsystem.util.RedisUtil;
 import com.music.musicsystem.vo.AlbumDetailVO;
 import com.music.musicsystem.vo.AlbumVO;
 import com.music.musicsystem.vo.SongVO;
@@ -29,6 +31,12 @@ public class AlbumServiceImpl extends ServiceImpl<AlbumMapper, Album> implements
 
     @Autowired
     private SongMapper songMapper;
+
+    @Autowired
+    private RedisUtil redisUtil;
+
+    /** 订单链路的 Redis 库存预扣键前缀（与 OrderServiceImpl 保持一致，审查 M-10） */
+    private static final String STOCK_PREFIX = "album:stock:";
     /**
      * 分页查询后台专辑列表，可按关键词筛选。
      */
@@ -67,23 +75,41 @@ public class AlbumServiceImpl extends ServiceImpl<AlbumMapper, Album> implements
     }
     /**
      * 更新指定专辑的信息。
+     * 只更新允许编辑的字段（审查 M-9：不做整行回写，避免覆盖并发下单变更的 stock/sales）；
+     * 商品形态与数字内容地址创建后锁定（审查 M-11），防止存量订单/购物车语义漂移；
+     * 库存变更后删除 Redis 预扣键，保证补货/减库存即时生效（审查 M-10）。
      */
-
     @Override
     public void updateAlbum(Long albumId, AlbumManagementDTO dto) {
         Album album = this.getById(albumId);
         if (album == null) {
             throw new BusinessException("专辑不存在");
         }
-        BeanUtils.copyProperties(dto, album);
-        album.setTitle(dto.getTitle().trim());
-        album.setArtist(dto.getArtist().trim());
-        if (!this.updateById(album)) {
+        boolean stockChanged = dto.getStock() != null && !dto.getStock().equals(album.getStock());
+
+        LambdaUpdateWrapper<Album> wrapper = new LambdaUpdateWrapper<Album>()
+                .eq(Album::getId, albumId)
+                .set(Album::getTitle, dto.getTitle().trim())
+                .set(Album::getArtist, dto.getArtist().trim())
+                .set(Album::getCoverUrl, dto.getCoverUrl())
+                .set(Album::getDescription, dto.getDescription())
+                .set(Album::getReleaseDate, dto.getReleaseDate())
+                .set(Album::getPrice, dto.getPrice())
+                .set(Album::getIsLimited, dto.getIsLimited())
+                .set(Album::getStatus, dto.getStatus());
+        if (stockChanged) {
+            wrapper.set(Album::getStock, dto.getStock());
+        }
+        if (!this.update(wrapper)) {
             throw new BusinessException("专辑信息更新失败");
+        }
+        if (stockChanged) {
+            // 下次下单时从 DB 重新加载，保证补货/减库存对 Redis 预扣层生效
+            redisUtil.delete(STOCK_PREFIX + albumId);
         }
     }
     /**
-     * 修改指定专辑的上架状态。
+     * 修改指定专辑的上架状态（条件化字段更新，不回写 stock/sales，审查 M-9）。
      */
 
     @Override
@@ -92,8 +118,13 @@ public class AlbumServiceImpl extends ServiceImpl<AlbumMapper, Album> implements
         if (album == null) {
             throw new BusinessException("专辑不存在");
         }
-        album.setStatus(status);
-        this.updateById(album);
+        if (status == null || (status != 0 && status != 1)) {
+            throw new BusinessException("状态值无效");
+        }
+        this.update(new LambdaUpdateWrapper<Album>()
+                .eq(Album::getId, albumId)
+                .set(Album::getStatus, status)
+        );
     }
     /**
      * 分页查询可展示的专辑列表。
@@ -140,6 +171,10 @@ public class AlbumServiceImpl extends ServiceImpl<AlbumMapper, Album> implements
         Album album = this.getById(id);
         if (album == null) {
             throw new BusinessException("专辑不存在");
+        }
+        // 审查 L-11：与列表/购物车/下单的 status=1 口径一致，下架专辑详情不再可访问
+        if (album.getStatus() == null || album.getStatus() != 1) {
+            throw new BusinessException("该专辑已下架");
         }
 
         // 转换VO

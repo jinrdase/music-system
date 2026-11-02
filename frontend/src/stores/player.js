@@ -145,6 +145,18 @@ export const usePlayerStore = defineStore('player', () => {
     if (audioElement.value) audioElement.value.volume = volume.value
   }
 
+  // 关闭播放条：停止音频并清空全部状态，组件随 currentSong=null 卸载
+  function close() {
+    if (audioElement.value) audioElement.value.pause()
+    currentSong.value = null
+    queue.value = []
+    currentIndex.value = -1
+    status.value = 'idle'
+    currentTime.value = 0
+    duration.value = 0
+    errorMessage.value = ''
+  }
+
   function onPlay() { status.value = 'loading' }
   function onPlaying() { status.value = 'playing' }
   function onPause() {
@@ -169,7 +181,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     audioElement, currentSong, queue, currentIndex, status, currentTime, duration, volume,
-    errorMessage, hasSource, isPlaying, statusText, attachAudio, playSong, togglePlayback,
+    errorMessage, hasSource, isPlaying, statusText, attachAudio, playSong, togglePlayback, close,
     previous, next, seek, setVolume, onPlay, onPlaying, onPause, onTimeUpdate, onMetadata, onEnded, onError,
   }
 })

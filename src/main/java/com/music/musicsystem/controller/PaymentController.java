@@ -39,11 +39,13 @@ public class PaymentController {
     }
 
     /**
-     * 查询支付结果
+     * 查询支付结果（仅限支付单所有者，审查 M-6）
      */
     @GetMapping("/query/{paymentNo}")
-    public Result<PaymentResultVO> queryPaymentResult(@PathVariable String paymentNo) {
-        PaymentResultVO vo = paymentService.queryPaymentResult(paymentNo);
+    public Result<PaymentResultVO> queryPaymentResult(@PathVariable String paymentNo,
+                                                      HttpServletRequest request) {
+        Long userId = getCurrentUserId(request);
+        PaymentResultVO vo = paymentService.queryPaymentResult(userId, paymentNo);
         return Result.success(vo);
     }
 

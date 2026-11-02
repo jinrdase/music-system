@@ -34,6 +34,8 @@ import com.music.musicsystem.mapper.SysUserMapper;
 import com.music.musicsystem.mapper.UserAddressMapper;
 import com.music.musicsystem.service.IBlindBoxService;
 import com.music.musicsystem.service.OrderService;
+import com.music.musicsystem.service.PaymentService;
+import com.music.musicsystem.service.RefundService;
 import com.music.musicsystem.util.RedisUtil;
 import com.music.musicsystem.vo.AdminOrderVO;
 import com.music.musicsystem.vo.DrawResultVO;
@@ -44,8 +46,10 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -58,6 +62,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -102,6 +107,17 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     @Autowired
     private SysUserMapper sysUserMapper;
 
+    @Autowired
+    @Lazy
+    private PaymentService paymentService;
+
+    @Autowired
+    @Lazy
+    private RefundService refundService;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
 
     @Autowired
     private RedisUtil redisUtil;
@@ -111,6 +127,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
 
     private static final String STOCK_PREFIX = "album:stock:";
     private static final String LOCK_PREFIX = "album:lock:";
+    /** 用户级下单/结算锁：串行化同一用户的提交，防止双击/重试生成重复订单（审查 M-4） */
+    private static final String USER_ORDER_LOCK_PREFIX = "order:create:";
+    /** 单商品限购件数，与购物车 MAX_ITEM_QUANTITY 保持同一口径（审查 G-4） */
+    private static final int MAX_ITEM_QUANTITY = 10;
     /**
      * 在支付成功后推进订单及相关业务状态。
      * 条件更新 status: 0→1（重复回调时已支付订单直接返回，保证幂等）；
@@ -135,7 +155,24 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                         .set(OrderInfo::getPayTime, LocalDateTime.now())
         );
         if (updated == 0) {
-            log.info("订单 {} 已推进过支付状态，跳过重复回调", order.getOrderNo());
+            // 审查 G-1：订单已取消但真实支付到账（超时关单与支付的竞态），不能静默吞钱——
+            // 订单流转为已退款并自动原路退款，资金不再悬空
+            OrderInfo current = orderInfoMapper.selectById(order.getId());
+            if (current != null && OrderStatus.CANCELLED.equals(current.getStatus())) {
+                log.warn("订单 {} 已取消但收到支付成功通知，执行自动退款", current.getOrderNo());
+                int backToRefunded = orderInfoMapper.update(
+                        null,
+                        new LambdaUpdateWrapper<OrderInfo>()
+                                .eq(OrderInfo::getId, current.getId())
+                                .eq(OrderInfo::getStatus, OrderStatus.CANCELLED)
+                                .set(OrderInfo::getStatus, OrderStatus.REFUNDED)
+                );
+                if (backToRefunded > 0) {
+                    refundService.executeSystemRefund(current, "订单已取消后支付到账，系统自动原路退款");
+                }
+            } else {
+                log.info("订单 {} 已推进过支付状态，跳过重复回调", order.getOrderNo());
+            }
             return;
         }
 
@@ -164,7 +201,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     }
 
     /**
-     * 盲盒订单抽取失败后的自动退款：订单置已退款(5)、支付单置已退款(3)、回补盲盒库存。
+     * 盲盒订单抽取失败后的自动退款：订单置已退款(5)、回补盲盒库存，
+     * 支付单/渠道资金/退款记录统一交由 executeSystemRefund 处理
+     * （真实支付宝支付会实际原路退款并落退款记录，不再只做本地状态流转，审查 M-8）。
      * 与支付回调同事务，调用方对渠道返回成功，避免渠道重复通知。
      */
     private void autoRefundBlindBoxOrder(OrderInfo order, String reason) {
@@ -176,21 +215,37 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                         .set(OrderInfo::getStatus, OrderStatus.REFUNDED)
                         .set(OrderInfo::getDrawSummary, "抽取失败自动退款：" + reason)
         );
-        paymentMapper.update(
-                null,
-                new LambdaUpdateWrapper<Payment>()
-                        .eq(Payment::getOrderId, order.getId())
-                        .eq(Payment::getStatus, PaymentStatus.SUCCESS)
-                        .set(Payment::getStatus, PaymentStatus.REFUNDED)
-        );
         blindBoxService.restoreOrderStock(order);
+        refundService.executeSystemRefund(order, "盲盒抽取失败，系统自动退款：" + reason);
     }
     /**
-     * 创建订单（秒杀防超卖核心逻辑
+     * 创建订单（秒杀防超卖核心逻辑）。
+     * 用户级分布式锁串行化提交防重复下单（审查 M-4）；事务边界收在锁内，
+     * 锁随事务提交后才释放，杜绝“提交前解锁”的并发窗口（审查 L-1）。
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public OrderVO createOrder(Long userId, CreateOrderDTO dto) {
+        RLock userLock = redissonClient.getLock(USER_ORDER_LOCK_PREFIX + userId);
+        try {
+            if (!userLock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                throw new BusinessException("系统繁忙，请稍后再试");
+            }
+            return transactionTemplate.execute(status -> doCreateOrder(userId, dto));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("系统繁忙，请稍后再试");
+        } finally {
+            if (userLock.isHeldByCurrentThread()) {
+                userLock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 直购下单事务体：Redis 预扣 + MySQL 条件扣减双层防护，
+     * MySQL 侧任一步失败时回补 Redis 预扣，保证两层库存一致（审查 M-2）。
+     */
+    private OrderVO doCreateOrder(Long userId, CreateOrderDTO dto) {
         Long albumId = dto.getAlbumId();
         Integer quantity = dto.getQuantity();
         Long addressId = dto.getAddressId();  // 新增：获取地址ID
@@ -220,9 +275,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             throw new BusinessException("数字商品无需填写收货地址");
         }
 
-        // 3. 获取分布式锁（防止并发问题）
+        // 3. 获取专辑分布式锁（防止并发问题）
         String lockKey = LOCK_PREFIX + albumId;
         RLock lock = redissonClient.getLock(lockKey);
+        Map<Long, Integer> deducted = new LinkedHashMap<>();
 
         try {
             // 尝试获取锁，最多等待5秒，锁10秒后自动释放
@@ -260,6 +316,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 redisUtil.increment(stockKey, quantity);
                 throw new BusinessException("库存不足或库存已被占用");
             }
+            // MySQL 扣减成功：记账供后续步骤失败时补偿（事务回滚 MySQL，手动回补 Redis）
+            deducted.put(albumId, quantity);
 
             // 6. 记录库存流水
             Album updatedAlbum = albumMapper.selectById(albumId);
@@ -322,13 +380,19 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             // 8. 返回订单信息
             return convertToVO(order);
 
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            compensateRedisStock(deducted);
+            throw new BusinessException("系统繁忙，请稍后再试");
         } catch (BusinessException e) {
+            compensateRedisStock(deducted);
             throw e;
         } catch (Exception e) {
             log.error("创建订单失败", e);
+            compensateRedisStock(deducted);
             throw new BusinessException("创建订单失败：" + e.getMessage());
         } finally {
-            // 释放锁
+            // 释放专辑锁
             if (lock.isHeldByCurrentThread()) {
                 lock.unlock();
             }
@@ -336,12 +400,32 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     }
     /**
      * 购物车合并结算：已勾选商品合并为一张多明细订单。
-     * 整单拒绝策略：任一明细失效/缺货则整单失败；中途扣减失败时事务回滚 MySQL 库存、
+     * 用户级分布式锁串行化提交防重复结算（审查 M-4）；事务边界收在锁内（审查 L-1）。
+     * 整单拒绝策略：任一明细失效/缺货/超限购则整单失败；中途扣减失败时事务回滚 MySQL 库存、
      * 手动回补 Redis 预扣，保证两层库存一致。
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public OrderVO createFromCart(Long userId, CreateFromCartDTO dto) {
+        RLock userLock = redissonClient.getLock(USER_ORDER_LOCK_PREFIX + userId);
+        try {
+            if (!userLock.tryLock(5, 10, TimeUnit.SECONDS)) {
+                throw new BusinessException("系统繁忙，请稍后再试");
+            }
+            return transactionTemplate.execute(status -> doCreateFromCart(userId, dto));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("系统繁忙，请稍后再试");
+        } finally {
+            if (userLock.isHeldByCurrentThread()) {
+                userLock.unlock();
+            }
+        }
+    }
+
+    /**
+     * 购物车结算事务体。
+     */
+    private OrderVO doCreateFromCart(Long userId, CreateFromCartDTO dto) {
         // 1. 汇总已勾选商品
         List<ShoppingCart> carts = shoppingCartMapper.selectList(
                 new LambdaQueryWrapper<ShoppingCart>()
@@ -353,7 +437,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             throw new BusinessException("请先勾选要结算的商品");
         }
 
-        // 2. 逐项校验：专辑在售、库存充足（整单拒绝）
+        // 2. 逐项校验：专辑在售、库存充足、不超单商品限购（整单拒绝，审查 G-4）
         Map<Long, Album> albums = new LinkedHashMap<>();
         boolean hasPhysical = false;
         for (ShoppingCart cart : carts) {
@@ -363,6 +447,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             }
             if (album.getStock() < cart.getQuantity()) {
                 throw new BusinessException("商品「" + album.getTitle() + "」库存不足，剩余 " + album.getStock() + " 件");
+            }
+            if (cart.getQuantity() > MAX_ITEM_QUANTITY) {
+                throw new BusinessException("商品「" + album.getTitle() + "」超过每商品限购 " + MAX_ITEM_QUANTITY + " 件");
             }
             albums.put(cart.getAlbumId(), album);
             if (ProductType.isPhysical(album.getProductType())) {
@@ -442,9 +529,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 orderItemMapper.insert(item);
             }
 
-            // 7. 移除已结算的购物车项（逻辑删除）
+            // 7. 移除已结算的购物车项（物理删除：配合 (user_id, album_id) 唯一键防并发加购重复，审查 L-7）
             for (ShoppingCart cart : carts) {
-                shoppingCartMapper.deleteById(cart.getId());
+                shoppingCartMapper.physicalDeleteById(cart.getId());
             }
 
             log.info("购物车结算成功：订单号={}, 用户ID={}, 明细数={}, 总金额={}",
@@ -474,7 +561,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             }
             String stockKey = STOCK_PREFIX + albumId;
             if (!redisUtil.hasKey(stockKey)) {
-                redisUtil.set(stockKey, album.getStock());
+                // 审查 L-2：持锁后重新读取实时库存初始化，避免用锁外过期快照导致 Redis 防线失真
+                Album fresh = albumMapper.selectById(albumId);
+                redisUtil.set(stockKey, fresh != null ? fresh.getStock() : album.getStock());
             }
             Long remainStock = redisUtil.decrement(stockKey, quantity);
             if (remainStock < 0) {
@@ -527,11 +616,30 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     }
 
     /**
-     * 取消订单
+     * 取消订单（用户入口），库存流水记 type=2。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void cancelOrder(Long userId, String orderNo) {
+        cancelOrderInternal(userId, orderNo, 2, "订单取消恢复库存");
+    }
+
+    /**
+     * 超时自动取消（定时任务入口），库存流水记 type=3。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void timeoutCancelOrder(Long userId, String orderNo) {
+        cancelOrderInternal(userId, orderNo, 3, "订单超时恢复库存");
+    }
+
+    /**
+     * 取消订单共用逻辑：
+     * 条件更新 0→3 防并发重复取消/重复回补库存；恢复库存；
+     * 同步关闭未支付支付单并尽力渠道关单——否则收银台仍可付款，
+     * 迟到回调会形成“钱已扣、订单已取消”的资金悬空（审查 G-1）。
+     */
+    private void cancelOrderInternal(Long userId, String orderNo, int stockLogType, String stockLogRemark) {
         // 1. 查询订单
         LambdaQueryWrapper<OrderInfo> query = new LambdaQueryWrapper<>();
         query.eq(OrderInfo::getOrderNo, orderNo)
@@ -558,8 +666,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
             throw new BusinessException("订单状态已变化，请刷新后重试");
         }
 
-        // 3. 恢复库存
-        restoreStock(order);
+        // 3. 恢复库存（流水类型/备注区分取消与超时，审查 L-5）
+        restoreStockInternal(order, stockLogType, stockLogRemark);
+
+        // 4. 关闭未支付支付单并尽力渠道关单（审查 G-1）
+        paymentService.closePendingPaymentsForOrder(order.getId());
 
         log.info("订单取消成功：订单号={}, 用户ID={}", orderNo, userId);
     }
@@ -579,6 +690,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
         }
         if (!OrderStatus.PAID.equals(order.getStatus())) {
             throw new BusinessException("只有已支付订单可以标记发货");
+        }
+        // 审查 L-3：数字商品走内容取阅交付，不允许进入物流履约状态机
+        if (!ProductType.isPhysical(order.getProductType())) {
+            throw new BusinessException("数字商品订单无需物流发货");
         }
 
         OrderLogistics logistics = new OrderLogistics();
@@ -607,10 +722,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void confirmReceipt(Long userId, String orderNo) {
+        // 审查 M-7：对订单行加 FOR UPDATE，与退款申请（同样锁订单行）串行化，
+        // 防止“已完成订单 + 存活退款申请”并发出现导致退款申请永久卡死
         OrderInfo order = orderInfoMapper.selectOne(
                 new LambdaQueryWrapper<OrderInfo>()
                         .eq(OrderInfo::getOrderNo, orderNo)
                         .eq(OrderInfo::getUserId, userId)
+                        .last("FOR UPDATE")
         );
         if (order == null) {
             throw new BusinessException("订单不存在");
@@ -738,9 +856,12 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String getDigitalContentByItem(Long userId, String orderNo, Long itemId) {
+        // 审查 L-4：对订单行加 FOR UPDATE（与退款申请同一把锁），消除“取阅提交与退款申请并发、
+        // 退款侧读到未取阅旧值”的闸门竞态
         OrderInfo order = orderInfoMapper.selectOne(new LambdaQueryWrapper<OrderInfo>()
                 .eq(OrderInfo::getOrderNo, orderNo)
-                .eq(OrderInfo::getUserId, userId));
+                .eq(OrderInfo::getUserId, userId)
+                .last("FOR UPDATE"));
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
@@ -881,12 +1002,19 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     }
 
     /**
-     * 恢复库存（取消订单、超时关单、退款执行共用）。
+     * 恢复库存（退款执行入口）：库存流水记 type=2、备注“退款回补库存”。
      * 盲盒订单（order_type=2）走盲盒库存回补；专辑订单按 order_item 逐条回补；
      * 无明细的历史订单按订单级快照回补。
      */
     @Override
     public void restoreStock(OrderInfo order) {
+        restoreStockInternal(order, 2, "退款回补库存");
+    }
+
+    /**
+     * 恢复库存共用分发：type/remark 由调用方给出（用户取消=2、超时=3、退款=2+独立备注，审查 L-5）。
+     */
+    private void restoreStockInternal(OrderInfo order, int stockLogType, String stockLogRemark) {
         if (order.getOrderType() != null && order.getOrderType() == 2) {
             blindBoxService.restoreOrderStock(order);
             return;
@@ -895,17 +1023,21 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId()));
         if (!items.isEmpty()) {
             for (OrderItem item : items) {
-                restoreAlbumStock(item.getAlbumId(), item.getQuantity(), order.getOrderNo());
+                restoreAlbumStock(item.getAlbumId(), item.getQuantity(), order.getOrderNo(),
+                        stockLogType, stockLogRemark);
             }
             return;
         }
-        restoreAlbumStock(order.getAlbumId(), order.getQuantity(), order.getOrderNo());
+        restoreAlbumStock(order.getAlbumId(), order.getQuantity(), order.getOrderNo(),
+                stockLogType, stockLogRemark);
     }
 
     /**
-     * 按专辑回补库存：MySQL 库存/销量回补、Redis 预扣回补、写 type=2 库存流水。
+     * 按专辑回补库存：MySQL 库存/销量回补、Redis 预扣回补、写库存流水。
+     * 流水口径与 DDL 一致：quantity 正数为扣减、负数为恢复（审查 L-5）。
      */
-    private void restoreAlbumStock(Long albumId, Integer quantity, String orderNo) {
+    private void restoreAlbumStock(Long albumId, Integer quantity, String orderNo,
+                                   int stockLogType, String stockLogRemark) {
 
         // 获取分布式锁（防止并发恢复）
         String lockKey = LOCK_PREFIX + albumId;
@@ -938,15 +1070,15 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 redisUtil.increment(stockKey, quantity); // Redis 库存增加
             }
 
-            // 3. 记录库存流水
+            // 3. 记录库存流水（恢复记负数，与 DDL“正数为扣减，负数为恢复”口径一致）
             StockLog stockLog = new StockLog();
             stockLog.setAlbumId(albumId);
             stockLog.setOrderNo(orderNo);
-            stockLog.setQuantity(quantity);  // 修改：正数（不是负数
-            stockLog.setType(2);  // 2-鎭㈠
+            stockLog.setQuantity(-quantity);
+            stockLog.setType(stockLogType);
             stockLog.setBeforeStock(beforeStock);
             stockLog.setAfterStock(afterStock);
-            stockLog.setRemark("订单取消或超时后恢复库存");
+            stockLog.setRemark(stockLogRemark);
             stockLog.setCreateTime(LocalDateTime.now());
             stockLogMapper.insert(stockLog);
 
@@ -967,10 +1099,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     }
 
     /**
-     * 生成订单
+     * 生成订单号：时间戳 + UUID 片段，毫秒内并发不碰撞（审查 M-3）。
      */
     private String generateOrderNo() {
-        return "ORD" + System.currentTimeMillis() + (int)(Math.random() * 10000);
+        return "ORD" + System.currentTimeMillis()
+                + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
 
     /**
