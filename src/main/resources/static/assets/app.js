@@ -211,8 +211,7 @@
       const addresses = await loadAddresses(true);
       if (!addresses.length) {
         $('#checkout-dialog').close();
-        notify('实物商品下单前，请先添加收货地址。');
-        openPage('addresses');
+        if (confirm('该商品为实体专辑，下单前需要添加收货地址。现在去添加？')) openPage('addresses');
         return;
       }
       addressSelect = `<label>收货地址<select id="checkout-address" required>${addresses.map(address => `<option value="${Number(address.id)}" ${Number(address.isDefault) === 1 ? 'selected' : ''}>${escapeHtml(address.receiverName)} · ${escapeHtml(address.receiverPhone)} · ${escapeHtml(address.fullAddress || [address.province, address.city, address.district, address.detailAddress].filter(Boolean).join(' '))}</option>`).join('')}</select></label>`;
@@ -230,6 +229,7 @@
         $('#checkout-dialog').close();
         notify(`订单已创建：${order.orderNo || ''}`);
         openPage('orders');
+        await startPayment(order.id, order.orderNo);
       } catch (error) { notify(error.message, 'error'); }
     }, { once: true });
   }
@@ -312,16 +312,17 @@
   function orderCard(order) {
     const [status, tone] = statusLabel(order);
     const cover = safeUrl(order.albumCover);
-    return `<article class="list-card order-card"><div class="row order-title"><div><p class="eyebrow">ORDER ${escapeHtml(order.orderNo)}</p><h3>${escapeHtml(order.albumTitle || '专辑订单')}</h3></div><span class="status-pill ${tone}">${escapeHtml(status)}</span></div><p>${escapeHtml(order.productType || '')} · ${Number(order.quantity)} 件 · ¥${money(order.totalAmount)}</p>${order.carrier ? `<p>物流：${escapeHtml(order.carrier)} · ${escapeHtml(order.trackingNo)}</p>` : ''}<div class="row">${cover ? `<img class="order-cover" src="${escapeHtml(cover)}" alt="">` : ''}<button class="button outline" data-action="order-detail" data-order="${escapeHtml(order.orderNo)}">订单详情</button>${Number(order.status) === 0 ? `<button class="button primary" data-action="order-pay" data-id="${Number(order.id)}" data-order="${escapeHtml(order.orderNo)}">去支付</button><button class="button danger" data-action="order-cancel" data-order="${escapeHtml(order.orderNo)}">取消订单</button>` : ''}${Number(order.status) === 4 ? `<button class="button primary" data-action="order-receive" data-order="${escapeHtml(order.orderNo)}">确认收货</button>` : ''}${String(order.productType).toUpperCase() === 'DIGITAL' && [1, 2].includes(Number(order.status)) ? `<button class="button outline" data-action="digital-content" data-order="${escapeHtml(order.orderNo)}">获取数字内容</button>` : ''}${[1, 2, 4].includes(Number(order.status)) ? `<button class="button outline" data-action="refund-apply" data-id="${Number(order.id)}">申请退款</button>` : ''}</div></article>`;
+    return `<article class="list-card order-card"><div class="row order-title"><div><p class="eyebrow">ORDER ${escapeHtml(order.orderNo)}</p><h3>${escapeHtml(order.albumTitle || '专辑订单')}</h3></div><span class="status-pill ${tone}">${escapeHtml(status)}</span></div><p>${escapeHtml(order.productType || '')} · ${Number(order.quantity)} 件 · ¥${money(order.totalAmount)}</p>${order.carrier ? `<p>物流：${escapeHtml(order.carrier)} · ${escapeHtml(order.trackingNo)}</p>` : ''}<div class="row">${cover ? `<img class="order-cover" src="${escapeHtml(cover)}" alt="">` : ''}<button class="button outline" data-action="order-detail" data-order="${escapeHtml(order.orderNo)}">订单详情</button>${Number(order.status) === 0 ? `<button class="button primary" data-action="order-pay" data-id="${Number(order.id)}" data-order="${escapeHtml(order.orderNo)}">去支付</button><button class="button danger" data-action="order-cancel" data-order="${escapeHtml(order.orderNo)}">取消订单</button>` : ''}${Number(order.status) === 4 ? `<button class="button primary" data-action="order-receive" data-order="${escapeHtml(order.orderNo)}">确认收货</button>` : ''}${String(order.productType).toUpperCase() === 'DIGITAL' && [1, 2].includes(Number(order.status)) ? `<button class="button outline" data-action="digital-content" data-order="${escapeHtml(order.orderNo)}">获取数字内容</button>` : ''}${(String(order.productType).toUpperCase() === 'PHYSICAL' && [1, 4].includes(Number(order.status))) || (String(order.productType).toUpperCase() === 'DIGITAL' && Number(order.status) === 1) ? `<button class="button outline" data-action="refund-apply" data-id="${Number(order.id)}" data-status="${Number(order.status)}" data-type="${escapeHtml(order.productType || '')}">申请退款</button>` : ''}</div></article>`;
   }
 
   async function startPayment(orderId, orderNo) {
-    const method = window.prompt('选择支付方式：输入 1 使用微信支付演示，输入 2 使用支付宝演示。当前后端返回模拟支付地址，不能进行真实扣款。', '1');
-    if (!['1', '2'].includes(method)) return;
     try {
-      const payment = await api('/api/payment/create', { method: 'POST', body: JSON.stringify({ orderId: Number(orderId), paymentMethod: Number(method) }) });
-      const destination = payment.payUrl || payment.qrCodeUrl || '';
-      $('#payment-content').innerHTML = `<p class="eyebrow">PAYMENT DEMO</p><h2>支付单已创建</h2><p>订单 ${escapeHtml(payment.orderNo || orderNo)} · ¥${money(payment.amount)}</p><p>支付流水：<code>${escapeHtml(payment.paymentNo)}</code></p><div class="notice-card"><span>!</span><p>当前服务端支付地址是模拟值。请勿向真实支付页面或账号付款。</p></div>${destination ? `<label class="form-stack">模拟支付地址<code class="url-code">${escapeHtml(destination)}</code></label>` : ''}<div class="row"><button class="button outline" data-action="payment-query" data-payment="${escapeHtml(payment.paymentNo)}">查询支付状态</button><button class="button danger" data-action="payment-cancel" data-payment="${escapeHtml(payment.paymentNo)}">取消支付</button></div>`;
+      const payment = await api('/api/payment/create', { method: 'POST', body: JSON.stringify({ orderId: Number(orderId) }) });
+      const destination = payment.payUrl || '';
+      const tip = destination
+        ? '已生成支付宝沙箱收银台地址，可点击下方按钮打开付款；支付后回到本页查询状态。'
+        : '后端当前为模拟支付模式（pay.mock-enabled=true），点击“模拟支付”即可把订单推进为已支付，不产生真实扣款。';
+      $('#payment-content').innerHTML = `<p class="eyebrow">PAYMENT</p><h2>支付单已创建</h2><p>订单 ${escapeHtml(payment.orderNo || orderNo)} · ¥${money(payment.amount)}</p><p>支付流水：<code>${escapeHtml(payment.paymentNo)}</code></p><div class="notice-card"><span>!</span><p>${escapeHtml(tip)}</p></div>${destination ? `<p><a class="button outline" href="${escapeHtml(safeUrl(destination))}" target="_blank" rel="noopener">打开支付宝收银台</a></p>` : ''}<div class="row"><button class="button primary" data-action="payment-mock" data-payment="${escapeHtml(payment.paymentNo)}">模拟支付</button><button class="button outline" data-action="payment-query" data-payment="${escapeHtml(payment.paymentNo)}">查询支付状态</button><button class="button danger" data-action="payment-cancel" data-payment="${escapeHtml(payment.paymentNo)}">取消支付</button></div>`;
       $('#payment-dialog').showModal();
     } catch (error) { notify(error.message, 'error'); }
   }
@@ -337,11 +338,36 @@
     if (isAdmin()) loadPendingRefunds();
   }
 
-  async function applyRefund(orderId) {
-    const reason = window.prompt('请填写退款原因'); if (!reason?.trim()) return;
-    const description = window.prompt('补充说明（选填）') || '';
-    try { await api('/api/refund/apply', { method: 'POST', body: JSON.stringify({ orderId: Number(orderId), reason: reason.trim(), description }) }); notify('退款申请已提交。'); openPage('refunds'); }
-    catch (error) { notify(error.message, 'error'); }
+  function applyRefund(orderId, status, productType) {
+    const needReturn = String(productType || '').toUpperCase() === 'PHYSICAL' && Number(status) === 4;
+    let dialog = $('#refund-dialog');
+    if (!dialog) {
+      dialog = document.createElement('dialog');
+      dialog.id = 'refund-dialog';
+      dialog.className = 'dialog';
+      document.body.appendChild(dialog);
+    }
+    const carriers = ['顺丰速运', '中通快递', '圆通速递', '韵达快递', '申通快递', '极兔速递', '京东物流', '邮政EMS'];
+    dialog.innerHTML = `<button class="dialog-close" aria-label="关闭" data-refund-close>×</button><div id="refund-content"><p class="eyebrow">REFUND</p><h2>申请退款</h2><form id="refund-form" class="form-stack"><label>退款原因<select id="refund-reason" required><option value="">请选择退款原因</option><option>不想要了</option><option>商品与描述不符</option><option>商品破损/有瑕疵</option><option>物流太慢</option><option>拍错了/重复下单</option><option>其他原因</option></select></label><label>补充说明（选填）<textarea id="refund-desc" rows="3" maxlength="500" placeholder="补充说明有助于加快审核"></textarea></label>${needReturn ? `<div class="notice-card"><span>!</span><p>该订单已发货，请退回商品并填写退货物流信息。</p></div><label>退货物流公司<select id="refund-carrier">${carriers.map(c => `<option>${c}</option>`).join('')}</select></label><label>退货物流单号<input id="refund-tracking" required placeholder="例如：SF1234567890"></label>` : ''}<div class="row"><button type="button" class="button outline" data-refund-close>取消</button><button type="submit" class="button primary">提交申请</button></div></form></div>`;
+    dialog.showModal();
+    dialog.querySelectorAll('[data-refund-close]').forEach(btn => btn.addEventListener('click', () => dialog.close()));
+    $('#refund-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const reason = $('#refund-reason').value.trim();
+      if (!reason) return notify('请选择退款原因', 'error');
+      const payload = { orderId: Number(orderId), reason, description: $('#refund-desc').value.trim() };
+      if (needReturn) {
+        payload.returnCarrier = $('#refund-carrier').value;
+        payload.returnTrackingNo = $('#refund-tracking').value.trim();
+        if (!payload.returnTrackingNo) return notify('请填写退货物流单号', 'error');
+      }
+      try {
+        await api('/api/refund/apply', { method: 'POST', body: JSON.stringify(payload) });
+        dialog.close();
+        notify('退款申请已提交。');
+        openPage('refunds');
+      } catch (error) { notify(error.message, 'error'); }
+    });
   }
 
   async function loadPendingRefunds() {
@@ -490,6 +516,8 @@
 
   document.addEventListener('click', async event => {
     const action = event.target.closest('[data-action]'); if (!action) return;
+    // 各按钮通过 data-id 传主键；此前缺少该定义导致所有带 id 的操作抛 ReferenceError（表现为“点击没反应”）
+    const id = Number(action.dataset.id);
     try {
       switch (action.dataset.action) {
         case 'detail': await showAlbum(id); break;
@@ -516,9 +544,10 @@
         case 'order-cancel': if (confirm('确认取消该未支付订单？')) { await api(`/api/order/cancel/${encodeURIComponent(action.dataset.order)}`, { method: 'POST' }); await loadOrders(); notify('订单已取消。'); } break;
         case 'order-receive': if (confirm('确认已经收到商品？')) { await api(`/api/order/confirmReceipt/${encodeURIComponent(action.dataset.order)}`, { method: 'POST' }); await loadOrders(); notify('已确认收货。'); } break;
         case 'digital-content': { const url = await api(`/api/order/${encodeURIComponent(action.dataset.order)}/digital-content`); $('#payment-content').innerHTML = `<p class="eyebrow">DIGITAL DELIVERY</p><h2>已授权的数字内容</h2><p>仅向当前登录账号展示。请勿分享此链接。</p><code class="url-code">${escapeHtml(url)}</code>${safeUrl(url) ? `<p><a class="button primary" href="${escapeHtml(safeUrl(url))}" target="_blank" rel="noopener">打开内容</a></p>` : ''}`; $('#payment-dialog').showModal(); break; }
-        case 'refund-apply': await applyRefund(id); break;
+        case 'refund-apply': applyRefund(id, Number(action.dataset.status), action.dataset.type); break;
         case 'refund-review': { const approved = action.dataset.approved === 'true'; const auditRemark = prompt(approved ? '填写审核备注（选填）' : '请填写拒绝原因'); if (!approved && !auditRemark?.trim()) break; await api(`/api/refund/admin/${id}/review`, { method: 'PUT', body: JSON.stringify({ approved, auditRemark: auditRemark || '' }) }); notify('退款申请已审核。'); loadPendingRefunds(); break; }
         case 'payment-query': { const result = await api(`/api/payment/query/${encodeURIComponent(action.dataset.payment)}`); const labels = { 0: '待支付', 1: '支付成功', 2: '已取消/失败' }; notify(`支付状态：${labels[result.status] || result.status}`); if (Number(result.status) === 1) { $('#payment-dialog').close(); loadOrders(); } break; }
+        case 'payment-mock': { await api(`/api/payment/mock-pay/${encodeURIComponent(action.dataset.payment)}`, { method: 'POST' }); notify('模拟支付成功，订单已支付。'); $('#payment-dialog').close(); loadOrders(); break; }
         case 'payment-cancel': if (confirm('确定取消该支付？')) { await api(`/api/payment/cancel/${encodeURIComponent(action.dataset.payment)}`, { method: 'POST' }); notify('支付已取消。'); $('#payment-dialog').close(); loadOrders(); } break;
         case 'album-edit': await editAlbum(id); break;
         case 'album-status': await api(`/api/admin/albums/${id}/status?status=${Number(action.dataset.status)}`, { method: 'PUT' }); notify('专辑状态已更新。'); loadAdminAlbums(); break;

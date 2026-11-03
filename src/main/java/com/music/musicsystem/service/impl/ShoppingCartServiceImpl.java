@@ -287,6 +287,8 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             vo.setStock(album.getStock());
             // 更新价格（防止商品价格变动）
             vo.setPrice(album.getPrice());
+            // 回传商品形态，前端结算时据此判断是否需要收货地址
+            vo.setProductType(album.getProductType());
         }
 
         return vo;

@@ -24,10 +24,12 @@ import com.music.musicsystem.entity.OrderInfo;
 import com.music.musicsystem.entity.OrderItem;
 import com.music.musicsystem.entity.Payment;
 import com.music.musicsystem.entity.RefundApplication;
+import com.music.musicsystem.entity.SysUser;
 import com.music.musicsystem.mapper.OrderInfoMapper;
 import com.music.musicsystem.mapper.OrderItemMapper;
 import com.music.musicsystem.mapper.PaymentMapper;
 import com.music.musicsystem.mapper.RefundApplicationMapper;
+import com.music.musicsystem.mapper.SysUserMapper;
 import com.music.musicsystem.service.OrderService;
 import com.music.musicsystem.service.RefundService;
 import com.music.musicsystem.vo.RefundApplicationVO;
@@ -37,7 +39,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 实现退款申请、审核及订单退款处理。
@@ -54,6 +58,7 @@ public class RefundServiceImpl implements RefundService {
     private final OrderItemMapper orderItemMapper;
     private final AlipayClientProvider alipayClientProvider;
     private final ObjectMapper objectMapper;
+    private final SysUserMapper sysUserMapper;
 
     public RefundServiceImpl(OrderInfoMapper orderInfoMapper,
                              RefundApplicationMapper refundApplicationMapper,
@@ -61,7 +66,8 @@ public class RefundServiceImpl implements RefundService {
                              OrderService orderService,
                              OrderItemMapper orderItemMapper,
                              AlipayClientProvider alipayClientProvider,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             SysUserMapper sysUserMapper) {
         this.orderInfoMapper = orderInfoMapper;
         this.refundApplicationMapper = refundApplicationMapper;
         this.paymentMapper = paymentMapper;
@@ -69,6 +75,7 @@ public class RefundServiceImpl implements RefundService {
         this.orderItemMapper = orderItemMapper;
         this.alipayClientProvider = alipayClientProvider;
         this.objectMapper = objectMapper;
+        this.sysUserMapper = sysUserMapper;
     }
     /**
      * 提交退款申请并校验订单是否符合退款条件。
@@ -162,9 +169,24 @@ public class RefundServiceImpl implements RefundService {
                 new Page<>(current, size),
                 new LambdaQueryWrapper<RefundApplication>()
                         .eq(RefundApplication::getStatus, RefundStatus.PENDING)
-                        .orderByAsc(RefundApplication::getCreateTime)
+                        .orderByDesc(RefundApplication::getCreateTime)
+                        .orderByDesc(RefundApplication::getId)
         );
-        return toVOPage(page);
+        Page<RefundApplicationVO> result = toVOPage(page);
+        // 批量补充申请人用户名，便于后台核对
+        List<Long> userIds = result.getRecords().stream()
+                .map(RefundApplicationVO::getUserId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (!userIds.isEmpty()) {
+            Map<Long, String> usernames = new HashMap<>();
+            for (SysUser user : sysUserMapper.selectBatchIds(userIds)) {
+                usernames.put(user.getId(), user.getUsername());
+            }
+            result.getRecords().forEach(vo -> vo.setUsername(usernames.get(vo.getUserId())));
+        }
+        return result;
     }
     /**
      * 审核退款申请。

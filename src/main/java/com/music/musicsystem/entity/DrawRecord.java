@@ -29,6 +29,11 @@ public class DrawRecord {
     private Long boxId;
 
     /**
+     * 关联订单ID（盲盒订单支付触发抽取时写入，用于按订单回放抽取结果）
+     */
+    private Long orderId;
+
+    /**
      * 奖品ID
      */
     private Long prizeId;

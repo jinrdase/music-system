@@ -10,6 +10,7 @@ import com.music.musicsystem.entity.BlindBoxPrize;
 import com.music.musicsystem.entity.DrawRecord;
 import com.music.musicsystem.entity.OrderInfo;
 import com.music.musicsystem.vo.BlindBoxVO;
+import com.music.musicsystem.vo.DrawRecordVO;
 import com.music.musicsystem.vo.DrawResultVO;
 import com.music.musicsystem.vo.OrderVO;
 
@@ -89,5 +90,10 @@ public interface IBlindBoxService {
     /**
      * 查询用户抽奖记录
      */
-    Page<DrawRecord> getMyDrawRecords(Long userId, int pageNum, int pageSize);
+    Page<DrawRecordVO> getMyDrawRecords(Long userId, int pageNum, int pageSize);
+
+    /**
+     * 查询某个盲盒订单的抽取结果（含奖品图片），用于抽取动画展示与回放。
+     */
+    List<DrawRecordVO> getOrderDrawRecords(Long userId, String orderNo);
 }

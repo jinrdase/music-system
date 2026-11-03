@@ -1,5 +1,6 @@
 import request from './request'
 export const createOrder = payload => request.post('/order/create', payload)
+export const createFromCart = payload => request.post('/order/createFromCart', payload)
 export const orders = params => request.get('/order/my', { params })
 export const orderDetail = no => request.get(`/order/${encodeURIComponent(no)}`)
 export const cancelOrder = no => request.post(`/order/cancel/${encodeURIComponent(no)}`)

@@ -29,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.security.SecureRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -276,7 +278,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
             throw new BusinessException("盲盒已下架");
         }
 
-        return doDrawLocked(userId, blindBox, drawCount, true);
+        return doDrawLocked(userId, blindBox, drawCount, true, null);
     }
 
     /**
@@ -379,7 +381,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
         if (blindBox == null) {
             throw new BusinessException("盲盒不存在，无法执行抽取");
         }
-        return doDrawLocked(order.getUserId(), blindBox, order.getDrawCount(), false);
+        return doDrawLocked(order.getUserId(), blindBox, order.getDrawCount(), false, order.getId());
     }
 
     /**
@@ -403,7 +405,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
      * 抽取核心：用户级分布式锁 → 奖品配置校验 →（deductStock=true 时原子扣库存）→
      * 保底计数 → 逐抽落库（概率快照+是否保底）→ 组装结果。
      */
-    private DrawResultVO doDrawLocked(Long userId, BlindBox blindBox, Integer drawCount, boolean deductStock) {
+    private DrawResultVO doDrawLocked(Long userId, BlindBox blindBox, Integer drawCount, boolean deductStock, Long orderId) {
         Long boxId = blindBox.getId();
         String lockKey = LOCK_KEY_PREFIX + userId + ":" + boxId;
         RLock lock = redissonClient.getLock(lockKey);
@@ -438,7 +440,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
                 stat.setSsrCount(stat.getSsrCount() + 1);
 
                 // 执行单次抽奖
-                DrawRecordVO record = drawOnce(userId, boxId, stat, prizeList);
+                DrawRecordVO record = drawOnce(userId, boxId, stat, prizeList, orderId);
                 drawResults.add(record);
 
                 // 如果抽到SR或SSR，重置对应计
@@ -491,7 +493,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
      *
      * 实现概率抽奖 + 保底机制
      */
-    private DrawRecordVO drawOnce(Long userId, Long boxId, UserDrawStat stat, List<BlindBoxPrize> prizeList) {
+    private DrawRecordVO drawOnce(Long userId, Long boxId, UserDrawStat stat, List<BlindBoxPrize> prizeList, Long orderId) {
         BlindBoxPrize selectedPrize;
         boolean isGuarantee = false;
 
@@ -515,6 +517,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
         DrawRecord record = new DrawRecord();
         record.setUserId(userId);
         record.setBoxId(boxId);
+        record.setOrderId(orderId);
         record.setPrizeId(selectedPrize.getId());
         record.setPrizeName(selectedPrize.getPrizeName());
         record.setPrizeLevel(selectedPrize.getPrizeLevel());
@@ -628,12 +631,68 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
      * 查询用户抽奖记录
      */
     @Override
-    public Page<DrawRecord> getMyDrawRecords(Long userId, int pageNum, int pageSize) {
-        Page<DrawRecord> page = new Page<>(pageNum, pageSize);
-        LambdaQueryWrapper<DrawRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(DrawRecord::getUserId, userId);
-        wrapper.orderByDesc(DrawRecord::getCreateTime);
-        return drawRecordMapper.selectPage(page, wrapper);
+    public Page<DrawRecordVO> getMyDrawRecords(Long userId, int pageNum, int pageSize) {
+        Page<DrawRecord> page = drawRecordMapper.selectPage(new Page<>(pageNum, pageSize),
+                new LambdaQueryWrapper<DrawRecord>()
+                        .eq(DrawRecord::getUserId, userId)
+                        .orderByDesc(DrawRecord::getCreateTime)
+                        .orderByDesc(DrawRecord::getId));
+        Page<DrawRecordVO> result = new Page<>(pageNum, pageSize, page.getTotal());
+        result.setRecords(toDrawRecordVOs(page.getRecords()));
+        return result;
+    }
+
+    /**
+     * 查询某个盲盒订单的抽取结果，供支付完成后的抽取动画展示与回放。
+     */
+    @Override
+    public List<DrawRecordVO> getOrderDrawRecords(Long userId, String orderNo) {
+        OrderInfo order = orderInfoMapper.selectOne(new LambdaQueryWrapper<OrderInfo>()
+                .eq(OrderInfo::getOrderNo, orderNo)
+                .eq(OrderInfo::getUserId, userId));
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        if (!Integer.valueOf(2).equals(order.getOrderType())) {
+            throw new BusinessException("该订单不是盲盒订单");
+        }
+        List<DrawRecord> records = drawRecordMapper.selectList(new LambdaQueryWrapper<DrawRecord>()
+                .eq(DrawRecord::getOrderId, order.getId())
+                .orderByAsc(DrawRecord::getId));
+        return toDrawRecordVOs(records);
+    }
+
+    /**
+     * 抽取记录转展示对象：批量补奖品图片与描述，避免逐条查询。
+     */
+    private List<DrawRecordVO> toDrawRecordVOs(List<DrawRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Long> prizeIds = records.stream().map(DrawRecord::getPrizeId).filter(id -> id != null).distinct().toList();
+        Map<Long, BlindBoxPrize> prizeMap = new HashMap<>();
+        if (!prizeIds.isEmpty()) {
+            for (BlindBoxPrize prize : prizeMapper.selectBatchIds(prizeIds)) {
+                prizeMap.put(prize.getId(), prize);
+            }
+        }
+        List<DrawRecordVO> result = new ArrayList<>(records.size());
+        for (DrawRecord record : records) {
+            DrawRecordVO vo = new DrawRecordVO();
+            vo.setPrizeId(record.getPrizeId());
+            vo.setPrizeName(record.getPrizeName());
+            vo.setPrizeLevel(record.getPrizeLevel());
+            vo.setPrizeLevelName(getLevelName(record.getPrizeLevel()));
+            vo.setIsGuarantee(record.getIsGuarantee());
+            vo.setDrawCount(record.getDrawCount());
+            BlindBoxPrize prize = prizeMap.get(record.getPrizeId());
+            if (prize != null) {
+                vo.setImageUrl(prize.getImageUrl());
+                vo.setDescription(prize.getDescription());
+            }
+            result.add(vo);
+        }
+        return result;
     }
 
     /**

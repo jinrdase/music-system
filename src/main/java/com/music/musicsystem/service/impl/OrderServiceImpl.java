@@ -8,6 +8,7 @@ import com.music.musicsystem.common.exception.BusinessException;
 import com.music.musicsystem.common.constant.OrderStatus;
 import com.music.musicsystem.common.constant.PaymentStatus;
 import com.music.musicsystem.common.constant.ProductType;
+import com.music.musicsystem.common.constant.RefundPolicy;
 import com.music.musicsystem.common.constant.RefundStatus;
 import com.music.musicsystem.dto.CreateFromCartDTO;
 import com.music.musicsystem.dto.CreateOrderDTO;
@@ -577,17 +578,39 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
-        if (!OrderStatus.PAID.equals(order.getStatus())) {
-            throw new BusinessException("只有已支付订单可以标记发货");
+        boolean alreadyShipped = OrderStatus.SHIPPED.equals(order.getStatus());
+        if (!OrderStatus.PAID.equals(order.getStatus()) && !alreadyShipped) {
+            throw new BusinessException("只有已支付或已发货订单可以登记物流信息");
         }
 
-        OrderLogistics logistics = new OrderLogistics();
-        logistics.setOrderId(order.getId());
-        logistics.setOrderNo(order.getOrderNo());
-        logistics.setCarrier(dto.getCarrier().trim());
-        logistics.setTrackingNo(dto.getTrackingNo().trim());
-        logistics.setShippedAt(LocalDateTime.now());
-        orderLogisticsMapper.insert(logistics);
+        String carrier = dto.getCarrier().trim();
+        String trackingNo = dto.getTrackingNo().trim();
+
+        // 同一订单只保留一条物流记录：已发货后再次提交视为修改物流信息
+        OrderLogistics logistics = orderLogisticsMapper.selectOne(
+                new LambdaQueryWrapper<OrderLogistics>()
+                        .eq(OrderLogistics::getOrderId, order.getId())
+                        .orderByDesc(OrderLogistics::getId)
+                        .last("limit 1")
+        );
+        if (logistics == null) {
+            logistics = new OrderLogistics();
+            logistics.setOrderId(order.getId());
+            logistics.setOrderNo(order.getOrderNo());
+            logistics.setCarrier(carrier);
+            logistics.setTrackingNo(trackingNo);
+            logistics.setShippedAt(LocalDateTime.now());
+            orderLogisticsMapper.insert(logistics);
+        } else {
+            logistics.setCarrier(carrier);
+            logistics.setTrackingNo(trackingNo);
+            orderLogisticsMapper.updateById(logistics);
+        }
+
+        // 修改物流信息时订单已是已发货状态，不再重复推进状态
+        if (alreadyShipped) {
+            return;
+        }
 
         int updated = orderInfoMapper.update(
                 null,
@@ -615,7 +638,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
-        if (!OrderStatus.SHIPPED.equals(order.getStatus())) {
+        // 盲盒订单：支付后即可确认收货（无物流环节，确认收货代表领取奖品并结束订单）
+        boolean blindBox = order.getOrderType() != null && order.getOrderType() == 2;
+        if (blindBox) {
+            if (!OrderStatus.PAID.equals(order.getStatus()) && !OrderStatus.SHIPPED.equals(order.getStatus())) {
+                throw new BusinessException("该订单当前状态不能确认收货");
+            }
+        } else if (!OrderStatus.SHIPPED.equals(order.getStatus())) {
             throw new BusinessException("只有已发货订单可以确认收货");
         }
 
@@ -633,7 +662,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 new LambdaUpdateWrapper<OrderInfo>()
                         .eq(OrderInfo::getId, order.getId())
                         .eq(OrderInfo::getUserId, userId)
-                        .eq(OrderInfo::getStatus, OrderStatus.SHIPPED)
+                        .in(OrderInfo::getStatus, blindBox
+                                ? java.util.List.of(OrderStatus.PAID, OrderStatus.SHIPPED)
+                                : java.util.List.of(OrderStatus.SHIPPED))
                         .set(OrderInfo::getStatus, OrderStatus.COMPLETED)
         );
         if (updated == 0) {
@@ -688,7 +719,40 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
                 vo.setShippedAt(logistics.getShippedAt());
             }
         }
+        fillRefundInfo(vo, order);
         return vo;
+    }
+
+    /**
+     * 填充订单详情的退款相关信息：最近一次申请状态、是否还能申请退款、是否需要退货物流。
+     */
+    private void fillRefundInfo(OrderVO vo, OrderInfo order) {
+        RefundApplication latest = refundApplicationMapper.selectOne(
+                new LambdaQueryWrapper<RefundApplication>()
+                        .eq(RefundApplication::getOrderId, order.getId())
+                        .orderByDesc(RefundApplication::getId)
+                        .last("LIMIT 1")
+        );
+        if (latest != null) {
+            vo.setRefundStatus(latest.getStatus());
+            vo.setRefundStatusText(RefundStatus.toText(latest.getStatus()));
+            vo.setRefundReason(latest.getReason());
+        }
+        boolean activeRefund = latest != null && (RefundStatus.PENDING == latest.getStatus()
+                || RefundStatus.APPROVED == latest.getStatus()
+                || RefundStatus.REFUNDED == latest.getStatus());
+        boolean digitalAccessed = order.getDigitalContentAccessedAt() != null;
+        if (!digitalAccessed) {
+            Long accessedItems = orderItemMapper.selectCount(
+                    new LambdaQueryWrapper<OrderItem>()
+                            .eq(OrderItem::getOrderId, order.getId())
+                            .eq(OrderItem::getProductType, ProductType.DIGITAL)
+                            .isNotNull(OrderItem::getDigitalContentAccessedAt)
+            );
+            digitalAccessed = accessedItems != null && accessedItems > 0;
+        }
+        vo.setRequiresReturnShipping(RefundPolicy.requiresReturnShipping(order));
+        vo.setCanApplyRefund(!activeRefund && !digitalAccessed && RefundPolicy.canApply(order));
     }
     /**
      * 获取已完成支付订单对应的数字内容。
@@ -870,11 +934,31 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
         }
 
         Page<AdminOrderVO> result = new Page<>(current, size, page.getTotal());
+
+        // 批量补充物流信息，便于后台核对与修改已发货订单
+        List<Long> shippedOrderIds = page.getRecords().stream()
+                .filter(order -> OrderStatus.SHIPPED.equals(order.getStatus()) || OrderStatus.COMPLETED.equals(order.getStatus()))
+                .map(OrderInfo::getId)
+                .toList();
+        Map<Long, OrderLogistics> logisticsMap = new HashMap<>();
+        if (!shippedOrderIds.isEmpty()) {
+            for (OrderLogistics logistics : orderLogisticsMapper.selectList(
+                    new LambdaQueryWrapper<OrderLogistics>().in(OrderLogistics::getOrderId, shippedOrderIds))) {
+                logisticsMap.put(logistics.getOrderId(), logistics);
+            }
+        }
+
         result.setRecords(page.getRecords().stream().map(order -> {
             AdminOrderVO vo = new AdminOrderVO();
             BeanUtils.copyProperties(order, vo);
             vo.setStatusText(OrderStatus.toText(order.getStatus()));
             vo.setUsername(usernames.get(order.getUserId()));
+            OrderLogistics logistics = logisticsMap.get(order.getId());
+            if (logistics != null) {
+                vo.setCarrier(logistics.getCarrier());
+                vo.setTrackingNo(logistics.getTrackingNo());
+                vo.setShippedAt(logistics.getShippedAt());
+            }
             return vo;
         }).collect(Collectors.toList()));
         return result;

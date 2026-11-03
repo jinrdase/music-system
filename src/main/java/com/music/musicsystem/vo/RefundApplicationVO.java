@@ -14,6 +14,9 @@ public class RefundApplicationVO {
     private Long id;
     private Long orderId;
     private String orderNo;
+    /** 申请人 */
+    private Long userId;
+    private String username;
     private BigDecimal refundAmount;
     private String reason;
     private String description;

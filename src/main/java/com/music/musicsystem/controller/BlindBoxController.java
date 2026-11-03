@@ -9,6 +9,7 @@ import com.music.musicsystem.entity.BlindBoxPrize;
 import com.music.musicsystem.service.IBlindBoxService;
 import com.music.musicsystem.vo.BlindBoxDetailVO;
 import com.music.musicsystem.vo.BlindBoxVO;
+import com.music.musicsystem.vo.DrawRecordVO;
 import com.music.musicsystem.vo.OrderVO;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.BeanUtils;
@@ -56,12 +57,22 @@ public class BlindBoxController {
     }
 
     @GetMapping("/my/records")
-    public Result<Page<com.music.musicsystem.entity.DrawRecord>> myRecords(
+    public Result<Page<DrawRecordVO>> myRecords(
             @RequestParam(defaultValue = "1") Integer current,
             @RequestParam(defaultValue = "10") Integer size,
             HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
         return Result.success(blindBoxService.getMyDrawRecords(userId, current, size));
+    }
+
+    /**
+     * 查询某笔盲盒订单的抽取结果，前端据此播放抽取动画（含奖品图片）。
+     */
+    @GetMapping("/order/{orderNo}/records")
+    public Result<List<DrawRecordVO>> orderRecords(@PathVariable String orderNo,
+                                                   HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        return Result.success(blindBoxService.getOrderDrawRecords(userId, orderNo));
     }
 
     /**

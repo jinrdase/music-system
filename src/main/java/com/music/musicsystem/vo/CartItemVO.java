@@ -20,5 +20,6 @@ public class CartItemVO {
     private Integer isSelected;
     private Integer stock; // 库存
     private Integer isValid; // 0-失效-有效
+    private String productType; // PHYSICAL-实体，DIGITAL-数字；结算时用于判断是否必须选择收货地址
     private LocalDateTime createTime;
 }
