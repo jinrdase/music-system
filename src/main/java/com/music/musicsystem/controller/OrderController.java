@@ -6,7 +6,10 @@ import com.music.musicsystem.common.result.Result;
 import com.music.musicsystem.dto.CreateFromCartDTO;
 import com.music.musicsystem.dto.CreateOrderDTO;
 import com.music.musicsystem.dto.ShipOrderDTO;
+import com.music.musicsystem.dto.UpdateOrderAddressDTO;
+import com.music.musicsystem.service.LogisticsService;
 import com.music.musicsystem.service.OrderService;
+import com.music.musicsystem.vo.LogisticsTrackVO;
 import com.music.musicsystem.vo.OrderItemVO;
 import com.music.musicsystem.vo.OrderVO;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,6 +29,9 @@ public class OrderController {
 
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private LogisticsService logisticsService;
 
     /**
      * 创建订单。
@@ -64,6 +70,20 @@ public class OrderController {
         Long userId = (Long) request.getAttribute("userId");
         orderService.cancelOrder(userId, orderNo);
         return Result.success("订单已取消", null);
+    }
+
+    /**
+     * 待支付订单修改收货地址（覆盖订单上的地址快照）
+     */
+    @PutMapping("/{orderNo}/address")
+    public Result<Void> updateOrderAddress(
+            @PathVariable String orderNo,
+            @Validated @RequestBody UpdateOrderAddressDTO dto,
+            HttpServletRequest request
+    ) {
+        Long userId = (Long) request.getAttribute("userId");
+        orderService.updateOrderAddress(userId, orderNo, dto);
+        return Result.success("收货地址已更新", null);
     }
 
     /**
@@ -121,6 +141,15 @@ public class OrderController {
         Long userId = (Long) request.getAttribute("userId");
         OrderVO orderVO = orderService.getOrderDetail(userId, orderNo);
         return Result.success(orderVO);
+    }
+
+    /**
+     * 查询物流轨迹（仅已发货/已完成订单；快递100 授权未配置时降级为仅返回承运商与单号）。
+     */
+    @GetMapping("/{orderNo}/logistics-track")
+    public Result<LogisticsTrackVO> getLogisticsTrack(@PathVariable String orderNo, HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        return Result.success(logisticsService.getTrack(userId, orderNo));
     }
     /**
      * 获取已完成支付订单对应的数字内容。

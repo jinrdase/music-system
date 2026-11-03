@@ -4,6 +4,7 @@ export const createFromCart = payload => request.post('/order/createFromCart', p
 export const orders = params => request.get('/order/my', { params })
 export const orderDetail = no => request.get(`/order/${encodeURIComponent(no)}`)
 export const cancelOrder = no => request.post(`/order/cancel/${encodeURIComponent(no)}`)
+export const updateOrderAddress = (no, payload) => request.put(`/order/${encodeURIComponent(no)}/address`, payload)
 export const confirmReceipt = no => request.post(`/order/confirmReceipt/${encodeURIComponent(no)}`)
 export const digitalContent = no => request.get(`/order/${encodeURIComponent(no)}/digital-content`)
 export const createPayment = payload => request.post('/payment/create', payload)
@@ -11,3 +12,4 @@ export const queryPayment = no => request.get(`/payment/query/${encodeURICompone
 export const mockPay = no => request.post(`/payment/mock-pay/${encodeURIComponent(no)}`)
 export const applyRefund = payload => request.post('/refund/apply', payload)
 export const myRefunds = params => request.get('/refund/my', { params })
+export const logisticsTrack = no => request.get(`/order/${encodeURIComponent(no)}/logistics-track`)

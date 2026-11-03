@@ -680,11 +680,13 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
         for (DrawRecord record : records) {
             DrawRecordVO vo = new DrawRecordVO();
             vo.setPrizeId(record.getPrizeId());
+            vo.setBoxId(record.getBoxId());
             vo.setPrizeName(record.getPrizeName());
             vo.setPrizeLevel(record.getPrizeLevel());
             vo.setPrizeLevelName(getLevelName(record.getPrizeLevel()));
             vo.setIsGuarantee(record.getIsGuarantee());
             vo.setDrawCount(record.getDrawCount());
+            vo.setCreateTime(record.getCreateTime());
             BlindBoxPrize prize = prizeMap.get(record.getPrizeId());
             if (prize != null) {
                 vo.setImageUrl(prize.getImageUrl());

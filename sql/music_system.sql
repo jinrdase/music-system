@@ -1,4 +1,5 @@
 -- 音乐系统表结构基线（2026-11-02 从本地 3308/music_system 实际结构导出，仅结构无数据；增量变更见同目录 2026xxxx_*.sql 迁移文件）
+-- 2026-11-03 同步：draw_record 增加 order_id 列与索引（见 20261102_draw_record_order.sql，已在本地库执行）
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -97,6 +98,7 @@ CREATE TABLE `draw_record` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` bigint NOT NULL COMMENT '用户ID',
   `box_id` bigint NOT NULL COMMENT '盲盒ID',
+  `order_id` bigint DEFAULT NULL COMMENT '关联订单ID（盲盒订单支付触发抽取时写入）',
   `prize_id` bigint NOT NULL COMMENT '奖品ID',
   `prize_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '奖品名称',
   `prize_level` tinyint NOT NULL COMMENT '稀有度',
@@ -107,6 +109,7 @@ CREATE TABLE `draw_record` (
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_user_id` (`user_id`) USING BTREE,
   KEY `idx_box_id` (`box_id`) USING BTREE,
+  KEY `idx_draw_record_order` (`order_id`) USING BTREE,
   KEY `idx_create_time` (`create_time`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='抽奖记录表';
 /*!40101 SET character_set_client = @saved_cs_client */;

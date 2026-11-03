@@ -3,6 +3,15 @@
    工业蓝图网格背景 + Element Plus 玻璃化覆盖
    ============================================================ */
 *{box-sizing:border-box}
+/* 原生文件选择按钮:玻璃风格统一(裸 input[type=file] 场景) */
+input[type="file"]{color:var(--muted)}
+input[type="file"]::file-selector-button{
+  padding:7px 14px;margin-right:10px;border:1px solid rgba(255,255,255,.24);
+  border-radius:8px;background:rgba(255,255,255,.09);color:var(--text);
+  font:inherit;font-weight:600;cursor:pointer;
+  transition:background .15s,border-color .15s;
+}
+input[type="file"]::file-selector-button:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.42)}
 body{
   margin:0;min-width:320px;color:var(--text);background-color:var(--bg);
   background-image:

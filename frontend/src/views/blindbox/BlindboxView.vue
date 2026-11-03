@@ -63,6 +63,20 @@ async function buy() {
   }
 }
 
+// 抽取记录行点击 → 奖品详情弹窗
+const prizeDetail = ref(null)
+const prizeOpen = ref(false)
+const LEVEL_NAMES = { 1: 'SSR', 2: 'SR', 3: 'R', 4: 'N' }
+const LEVEL_TAG_TYPES = { 1: 'danger', 2: 'warning', 3: 'success', 4: 'info' }
+function levelName(level) { return prizeDetail.value?.prizeLevelName || LEVEL_NAMES[Number(level)] || 'N' }
+function levelTagType(level) { return LEVEL_TAG_TYPES[Number(level)] || 'info' }
+function showPrize(row) { prizeDetail.value = row; prizeOpen.value = true }
+function boxNameOf(boxId) {
+  const box = rows.value.find(b => Number(b.id) === Number(boxId))
+  return box ? box.name : (boxId ? `盲盒 #${boxId}` : '—')
+}
+function fmtTime(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '—' }
+
 onMounted(load)
 </script>
 
@@ -101,18 +115,27 @@ onMounted(load)
 
   <section v-if="user.isLoggedIn" class="content-card">
     <h2>我的抽取记录</h2>
-    <el-table :data="records">
+    <p class="muted records-hint">点击任意一行查看奖品详情。</p>
+    <el-table :data="records" class="records-table" @row-click="showPrize">
       <el-table-column label="奖品图片" width="100">
         <template #default="{ row }">
           <img v-if="row.imageUrl" class="prize-thumbnail" :src="row.imageUrl" :alt="row.prizeName" loading="lazy" />
           <span v-else class="muted">暂无图片</span>
         </template>
       </el-table-column>
-      <el-table-column prop="boxId" label="盲盒 ID" />
-      <el-table-column prop="prizeName" label="奖品" />
-      <el-table-column prop="prizeLevel" label="等级" />
-      <el-table-column prop="drawCount" label="累计抽数" />
-      <el-table-column prop="createTime" label="时间" />
+      <el-table-column label="盲盒" min-width="140">
+        <template #default="{ row }">{{ boxNameOf(row.boxId) }}</template>
+      </el-table-column>
+      <el-table-column prop="prizeName" label="奖品" min-width="120" />
+      <el-table-column label="等级" width="90">
+        <template #default="{ row }">
+          <el-tag size="small" effect="dark" :type="levelTagType(row.prizeLevel)">{{ levelName(row.prizeLevel) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="drawCount" label="累计抽数" width="100" />
+      <el-table-column label="时间" min-width="160">
+        <template #default="{ row }">{{ fmtTime(row.createTime) }}</template>
+      </el-table-column>
     </el-table>
   </section>
 
@@ -158,6 +181,31 @@ onMounted(load)
     </el-table>
     <p class="muted">支付成功后由后端自动抽取，结果可在“我的抽取记录”中查看。</p>
   </el-dialog>
+
+  <el-dialog v-model="prizeOpen" title="奖品详情" width="min(520px,92vw)">
+    <div v-if="prizeDetail" class="prize-detail">
+      <div class="prize-detail-cover">
+        <img v-if="prizeDetail.imageUrl" :src="prizeDetail.imageUrl" :alt="prizeDetail.prizeName" />
+        <span v-else class="prize-detail-placeholder">◉</span>
+      </div>
+      <div class="prize-detail-info">
+        <div class="prize-detail-head">
+          <h3>{{ prizeDetail.prizeName }}</h3>
+          <el-tag effect="dark" :type="levelTagType(prizeDetail.prizeLevel)">{{ levelName(prizeDetail.prizeLevel) }}</el-tag>
+          <el-tag v-if="Number(prizeDetail.isGuarantee) === 1" type="warning" effect="plain">保底触发</el-tag>
+        </div>
+        <p class="muted">{{ prizeDetail.description || '暂无奖品描述' }}</p>
+        <div class="prize-detail-meta">
+          <div><span class="muted">所属盲盒</span><b>{{ boxNameOf(prizeDetail.boxId) }}</b></div>
+          <div><span class="muted">累计抽数</span><b>第 {{ prizeDetail.drawCount ?? '—' }} 抽</b></div>
+          <div><span class="muted">抽取时间</span><b>{{ fmtTime(prizeDetail.createTime) }}</b></div>
+        </div>
+      </div>
+    </div>
+    <template #footer>
+      <el-button @click="prizeOpen = false">关闭</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -175,6 +223,26 @@ onMounted(load)
 .blindbox-detail-heading { display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 22px; align-items: center; margin-bottom: 20px; }
 .blindbox-detail-cover { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px; }
 .prize-thumbnail { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+.records-hint { margin: -6px 0 14px; font-size: 13px; }
+.records-table :deep(.el-table__row) { cursor: pointer; }
+.prize-detail { display: grid; grid-template-columns: 180px 1fr; gap: 20px; align-items: start; }
+.prize-detail-cover {
+  width: 180px; aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  display: grid; place-items: center;
+  background: rgba(255,255,255,.06); border: 1px solid var(--glass-border);
+}
+.prize-detail-cover img { width: 100%; height: 100%; object-fit: cover; }
+.prize-detail-placeholder { font-size: 64px; color: rgba(255,255,255,.28); }
+.prize-detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prize-detail-head h3 { margin: 0; font-size: 20px; font-weight: 750; }
+.prize-detail-info p { margin: 12px 0 16px; line-height: 1.7; }
+.prize-detail-meta { display: grid; gap: 10px; font-size: 13px; }
+.prize-detail-meta > div { display: flex; gap: 14px; }
+.prize-detail-meta .muted { width: 64px; flex: none; }
+@media (max-width: 560px) {
+  .prize-detail { grid-template-columns: 1fr; }
+  .prize-detail-cover { max-width: 200px; }
+}
 @media (max-width: 620px) {
   .blindbox-detail-heading { grid-template-columns: 1fr; }
   .blindbox-detail-cover { max-width: 260px; }

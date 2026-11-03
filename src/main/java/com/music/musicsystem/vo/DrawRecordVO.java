@@ -1,6 +1,8 @@
 package com.music.musicsystem.vo;
 
 
+import java.time.LocalDateTime;
+
 import lombok.Data;
 
 /**
@@ -8,6 +10,11 @@ import lombok.Data;
  */
 @Data
 public class DrawRecordVO {
+
+    /**
+     * 盲盒ID
+     */
+    private Long boxId;
 
     /**
      * 奖品ID
@@ -48,4 +55,9 @@ public class DrawRecordVO {
      * 当前第几
      */
     private Integer drawCount;
+
+    /**
+     * 抽取时间
+     */
+    private LocalDateTime createTime;
 }

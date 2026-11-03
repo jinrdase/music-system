@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.spring.service.IService;
 import com.music.musicsystem.dto.CreateFromCartDTO;
 import com.music.musicsystem.dto.CreateOrderDTO;
 import com.music.musicsystem.dto.ShipOrderDTO;
+import com.music.musicsystem.dto.UpdateOrderAddressDTO;
 import com.music.musicsystem.entity.OrderInfo;
 import com.music.musicsystem.vo.AdminOrderVO;
 import com.music.musicsystem.vo.OrderItemVO;
@@ -52,6 +53,11 @@ public interface OrderService extends IService<OrderInfo> {
      * 确认收货并完成订单
      */
     void confirmReceipt(Long userId, String orderNo);
+
+    /**
+     * 待支付订单修改收货地址（覆盖订单上的地址快照）
+     */
+    void updateOrderAddress(Long userId, String orderNo, UpdateOrderAddressDTO dto);
 
     /**
      * 查询用户订单列表

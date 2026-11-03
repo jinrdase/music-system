@@ -13,6 +13,7 @@ import com.music.musicsystem.common.constant.RefundStatus;
 import com.music.musicsystem.dto.CreateFromCartDTO;
 import com.music.musicsystem.dto.CreateOrderDTO;
 import com.music.musicsystem.dto.ShipOrderDTO;
+import com.music.musicsystem.dto.UpdateOrderAddressDTO;
 import com.music.musicsystem.entity.Album;
 import com.music.musicsystem.entity.OrderInfo;
 import com.music.musicsystem.entity.OrderItem;
@@ -679,6 +680,54 @@ public class OrderServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo> im
     /**
      * 仅允许将已支付订单标记为已发货。
      */
+    /**
+     * 待支付订单修改收货地址：校验地址归属后覆盖订单上的地址快照。
+     * 仅待支付且实物订单允许；条件更新 WHERE status=0 防止与支付/取消并发竞争。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateOrderAddress(Long userId, String orderNo, UpdateOrderAddressDTO dto) {
+        OrderInfo order = this.getOne(
+                new LambdaQueryWrapper<OrderInfo>()
+                        .eq(OrderInfo::getOrderNo, orderNo)
+                        .eq(OrderInfo::getUserId, userId)
+        );
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        if (!OrderStatus.UNPAID.equals(order.getStatus())) {
+            throw new BusinessException("只能修改待支付订单的收货地址");
+        }
+        if (!ProductType.isPhysical(order.getProductType())) {
+            throw new BusinessException("数字商品订单无需收货地址");
+        }
+
+        UserAddress address = userAddressMapper.selectById(dto.getAddressId());
+        if (address == null || address.getDeleted() == 1) {
+            throw new BusinessException("收货地址不存在");
+        }
+        if (!address.getUserId().equals(userId)) {
+            throw new BusinessException("无权使用此地址");
+        }
+
+        int updated = orderInfoMapper.update(
+                null,
+                new LambdaUpdateWrapper<OrderInfo>()
+                        .eq(OrderInfo::getId, order.getId())
+                        .eq(OrderInfo::getStatus, OrderStatus.UNPAID)
+                        .set(OrderInfo::getReceiverName, address.getReceiverName())
+                        .set(OrderInfo::getReceiverPhone, address.getReceiverPhone())
+                        .set(OrderInfo::getReceiverProvince, address.getProvince())
+                        .set(OrderInfo::getReceiverCity, address.getCity())
+                        .set(OrderInfo::getReceiverDistrict, address.getDistrict())
+                        .set(OrderInfo::getReceiverAddress, address.getDetailAddress())
+        );
+        if (updated == 0) {
+            throw new BusinessException("订单状态已变化，请刷新后重试");
+        }
+        log.info("订单修改收货地址成功：订单号={}, 用户ID={}, 地址ID={}", orderNo, userId, dto.getAddressId());
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void shipOrder(String orderNo, ShipOrderDTO dto) {

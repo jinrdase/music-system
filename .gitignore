@@ -62,6 +62,7 @@ application-prod.yaml
 # 支付宝沙箱私钥（本地覆盖文件，绝不提交）
 alipay-local.properties
 ai-local.properties
+logistics-local.properties
 local-test-credentials/
 
 # .zcode

@@ -10,7 +10,7 @@ spring:
   application:
     name: music-system
 
-  # 本地敏感配置（支付宝私钥、智谱 API Key 等），文件已被 .gitignore 排除；不存在时忽略。
+  # 本地敏感配置（支付宝私钥、智谱 API Key、快递100 授权等），文件已被 .gitignore 排除；不存在时忽略。
   # 两个候选路径：兼容"工作目录=music-system 模块目录"与"工作目录=工作区根目录"两种启动方式（IDEA/命令行）。
   config:
     import:
@@ -18,6 +18,8 @@ spring:
       - optional:file:./music-system/alipay-local.properties
       - optional:file:./ai-local.properties
       - optional:file:./music-system/ai-local.properties
+      - optional:file:./logistics-local.properties
+      - optional:file:./music-system/logistics-local.properties
 
   servlet:
     multipart:
@@ -61,6 +63,19 @@ ai:
     ttl-days: 7
     # 单次流式回复超时（秒）
     timeout-seconds: 60
+
+logistics:
+  kuaidi100:
+    # 物流轨迹查询开关：未配置授权时自动降级（前端仅展示承运商与单号）
+    enabled: true
+    # 快递100 开放平台授权 key 与客户编号（免费版实名注册后获取）：
+    # 优先读 logistics-local.properties（git 已排除），也可用环境变量 KUAIDI100_KEY / KUAIDI100_CUSTOMER 注入
+    key: ${kuaidi.local.key:${KUAIDI100_KEY:}}
+    customer: ${kuaidi.local.customer:${KUAIDI100_CUSTOMER:}}
+    # 查询端点（演示可切官方沙箱 http://sandbox.api.kuaidi100.com:12050/poll/query.do，沙箱不校验签名）
+    url: https://poll.kuaidi100.com/poll/query.do
+    # 轨迹 Redis 缓存时长（分钟），避免同一单号反复打第三方
+    cache-ttl-minutes: 30
 
 mybatis-plus:
   configuration:
