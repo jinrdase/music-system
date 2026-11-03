@@ -30,7 +30,9 @@ public class AdminSongController {
                                      @RequestParam(defaultValue = "20") Integer size,
                                      HttpServletRequest request) {
         requireAdmin(request);
-        return Result.success(songService.getAdminSongs(albumId, current, size));
+        // 审查 L-14：分页 size 封顶
+        return Result.success(songService.getAdminSongs(albumId,
+                AlbumController.normalizeCurrent(current), AlbumController.normalizeSize(size)));
     }
 
     @PostMapping

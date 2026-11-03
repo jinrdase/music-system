@@ -67,8 +67,13 @@ public class JwtInterceptor implements HandlerInterceptor {
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
                                 Object handler, Exception ex) {
         String path = request.getRequestURI();
-        boolean adminApi = path.startsWith("/api/admin/")
-                && !path.startsWith("/api/admin/audit-logs");
+        // 只审计写操作：后台的列表/统计等只读查询不记录，避免浏览行为把审计表灌满。
+        String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)
+                || "OPTIONS".equalsIgnoreCase(method)) {
+            return;
+        }
+        boolean adminApi = path.startsWith("/api/admin/");
         // These administrative actions intentionally live outside /api/admin/**.
         boolean adminOrderShipment = path.startsWith("/api/order/ship/");
         boolean adminRefundAction = path.startsWith("/api/refund/admin/");
@@ -82,7 +87,7 @@ public class JwtInterceptor implements HandlerInterceptor {
             return;
         }
         try {
-            adminAuditLogService.record(id, role, request.getMethod(), path,
+            adminAuditLogService.record(id, role, method, path,
                     response.getStatus(), request.getRemoteAddr());
         } catch (Exception auditFailure) {
             // Auditing must not turn an otherwise completed admin request into a failure.

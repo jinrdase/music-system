@@ -63,7 +63,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
     private static final int SR_GUARANTEE = 10;   // 10抽保底SR
     private static final int SSR_GUARANTEE = 30;  // 30抽保底SSR
 
-    // 绋€鏈夊害甯搁噺
+    // 稀有度常量。
     private static final int LEVEL_SSR = 1;
     private static final int LEVEL_SR = 2;
     private static final int LEVEL_R = 3;
@@ -704,7 +704,7 @@ public class BlindBoxServiceImpl implements IBlindBoxService {
             case LEVEL_SR: return "SR";
             case LEVEL_R: return "R";
             case LEVEL_N: return "N";
-            default: return "鏈煡";
+            default: return "未知";
         }
     }
 }

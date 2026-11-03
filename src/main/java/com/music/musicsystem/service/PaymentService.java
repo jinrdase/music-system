@@ -18,9 +18,15 @@ public interface PaymentService {
     PaymentVO createPayment(Long userId, PaymentDTO dto);
 
     /**
-     * 查询支付结果
+     * 查询支付结果（仅限支付单所有者，审查 M-6）
      */
-    PaymentResultVO queryPaymentResult(String paymentNo);
+    PaymentResultVO queryPaymentResult(Long userId, String paymentNo);
+
+    /**
+     * 关闭订单下所有待支付支付单并尽力渠道关单（取消/超时订单时调用，审查 G-1）。
+     * 返回关闭的支付单数。
+     */
+    int closePendingPaymentsForOrder(Long orderId);
 
     /**
      * 支付宝支付回调（异步通知）。

@@ -52,8 +52,8 @@ public class OrderTimeoutTask {
             // 逐个取消超时订单
             for (OrderInfo order : expiredOrders) {
                 try {
-                    // 调用 cancelOrder 方法，传userId orderNo
-                    orderService.cancelOrder(order.getUserId(), order.getOrderNo());
+                    // 超时入口：与用户取消同一状态机，库存流水记 type=3（审查 L-5）
+                    orderService.timeoutCancelOrder(order.getUserId(), order.getOrderNo());
                     successCount++;
                     log.info("订单 {} 超时自动取消成功，用户ID：{}，专辑ID：{}，数量：{}",
                             order.getOrderNo(),

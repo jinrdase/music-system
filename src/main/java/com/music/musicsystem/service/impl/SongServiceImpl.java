@@ -1,6 +1,7 @@
 package com.music.musicsystem.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.music.musicsystem.common.exception.BusinessException;
@@ -49,6 +50,8 @@ public class SongServiceImpl extends ServiceImpl<SongMapper, Song> implements So
     @Override
     public Long createSong(SongManagementDTO dto) {
         ensureAlbumExists(dto.getAlbumId());
+        // 审查 L-10：同专辑内曲序唯一
+        ensureTrackNumberAvailable(dto.getAlbumId(), dto.getTrackNumber(), null);
         Song song = new Song();
         BeanUtils.copyProperties(dto, song);
         song.setTitle(dto.getTitle().trim());
@@ -68,11 +71,23 @@ public class SongServiceImpl extends ServiceImpl<SongMapper, Song> implements So
         if (song == null) {
             throw new BusinessException("歌曲不存在");
         }
+        // 审查 L-10：曲序唯一（排除自身）
+        ensureTrackNumberAvailable(dto.getAlbumId(), dto.getTrackNumber(), songId);
         BeanUtils.copyProperties(dto, song);
         song.setTitle(dto.getTitle().trim());
         song.setArtist(dto.getArtist().trim());
         if (!this.updateById(song)) {
             throw new BusinessException("歌曲信息更新失败");
+        }
+    }
+
+    private void ensureTrackNumberAvailable(Long albumId, Integer trackNumber, Long excludeSongId) {
+        Long count = this.count(new LambdaQueryWrapper<Song>()
+                .eq(Song::getAlbumId, albumId)
+                .eq(Song::getTrackNumber, trackNumber)
+                .ne(excludeSongId != null, Song::getId, excludeSongId));
+        if (count != null && count > 0) {
+            throw new BusinessException("该专辑已存在曲序为 " + trackNumber + " 的歌曲");
         }
     }
 
@@ -88,9 +103,18 @@ public class SongServiceImpl extends ServiceImpl<SongMapper, Song> implements So
     @Override
     public void increasePlayCount(Long songId) {
         Song song = this.getById(songId);
-        if (song != null) {
-            song.setPlayCount(song.getPlayCount() + 1);
-            this.updateById(song);
+        if (song == null) {
+            // 审查 L-12：歌曲不存在不再静默成功
+            throw new BusinessException("歌曲不存在");
         }
+        // 审查 L-12：下架专辑的歌曲不允许继续刷播放量
+        Album album = albumMapper.selectById(song.getAlbumId());
+        if (album == null || album.getStatus() == null || album.getStatus() != 1) {
+            throw new BusinessException("该歌曲所属专辑已下架");
+        }
+        // 审查 L-12：条件更新原子自增，不再读改写整行回写
+        this.update(new LambdaUpdateWrapper<Song>()
+                .eq(Song::getId, songId)
+                .setSql("play_count = play_count + 1"));
     }
 }

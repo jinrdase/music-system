@@ -31,7 +31,9 @@ public class AdminAlbumController {
                                       @RequestParam(required = false) String keyword,
                                       HttpServletRequest request) {
         requireAdmin(request);
-        return Result.success(albumService.getAdminAlbumList(current, size, keyword));
+        // 审查 L-14：分页 size 封顶
+        return Result.success(albumService.getAdminAlbumList(
+                AlbumController.normalizeCurrent(current), AlbumController.normalizeSize(size), keyword));
     }
 
     @PostMapping

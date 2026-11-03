@@ -87,6 +87,6 @@ watch(() => route.params.id, load)
 </template>
 
 <style scoped>
-.track-info{min-width:0;display:grid;gap:4px}.track-unavailable{color:#e4a16e;font-size:11px}.track-play{flex:none}
+.track-info{min-width:0;display:grid;gap:4px}.track-unavailable{color:var(--accent-text);font-size:11px}.track-play{flex:none}
 @media(max-width:520px){.track-row{align-items:flex-start}.track-play{font-size:12px;padding:8px 10px}}
 </style>

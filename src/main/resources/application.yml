@@ -24,9 +24,9 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3307/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3308/music_system?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: root
+    password: myroot
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20
@@ -60,7 +60,7 @@ jwt:
 
 pay:
   # 模拟支付开关（F-4.8）：仅开发/演示环境开启，生产部署必须置 false（接口会直接拒绝）
-  mock-enabled: true
+  mock-enabled: false
 
 alipay:
   # 沙箱网关（开放平台沙箱环境）

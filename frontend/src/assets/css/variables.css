@@ -1,1 +1,100 @@
-:root{font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;color:#eeeae2;background:#11100f;font-synthesis:none;text-rendering:optimizeLegibility;--bg:#11100f;--panel:#1b1917;--panel2:#24211e;--line:#39342e;--text:#eeeae2;--muted:#a6a097;--accent:#e2a565;--green:#9cbf9a;--danger:#e17f72;--radius:16px}
+/* ============================================================
+   PP唱片 · 设计令牌
+   风格:极简工业风 + 高透明玻璃拟态
+   钢青石墨底 + 工业安全橙唯一强调色
+   ============================================================ */
+/* html:root 提升优先级:Element Plus 组件样式后注入,同权重 :root 会覆盖回默认蓝 */
+html:root{
+  font-family:Inter,"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  color:#f2f5f8;
+  background:#0d1115;
+  font-synthesis:none;
+  text-rendering:optimizeLegibility;
+
+  /* 基底与文字 */
+  --bg:#0d1115;
+  --text:#f2f5f8;
+  --muted:#94a1ad;
+
+  /* 工业安全橙:唯一强调色 */
+  --accent:#ff8a2a;
+  --accent-bright:#ffa04f;
+  --accent-text:#ffb066;
+  --accent-soft:rgba(255,138,42,.14);
+  --accent-border:rgba(255,138,42,.45);
+  --on-accent:#1a1005;
+
+  /* 语义色 */
+  --green:#3ecf8e;
+  --danger:#ff5d5d;
+  --warning:#ffb020;
+
+  /* 玻璃组件(透明度偏高) */
+  --glass:rgba(255,255,255,.055);
+  --glass-strong:rgba(255,255,255,.10);
+  --glass-border:rgba(255,255,255,.13);
+  --line:rgba(255,255,255,.10);
+  --blur:20px;
+
+  /* 形状:工业风取小圆角 */
+  --radius:12px;
+  --radius-lg:18px;
+
+  /* 技术感等宽字体:眉标 / 角标 / 元信息 */
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace;
+
+  /* ---- Element Plus 基调:跟随玻璃深色主题 ---- */
+  --el-color-primary:#ff8a2a;
+  --el-color-primary-light-3:#ffa04f;
+  --el-color-primary-light-5:#ffb878;
+  --el-color-primary-light-7:#ffd3a6;
+  --el-color-primary-light-8:#ffe2c4;
+  --el-color-primary-light-9:rgba(255,138,42,.14);
+  --el-color-primary-dark-2:#f07615;
+  --el-color-success:#3ecf8e;
+  --el-color-success-light-3:#6bdca8;
+  --el-color-success-light-9:rgba(62,207,142,.13);
+  --el-color-warning:#ffb020;
+  --el-color-warning-light-3:#ffc45c;
+  --el-color-warning-light-9:rgba(255,176,32,.13);
+  --el-color-danger:#ff5d5d;
+  --el-color-danger-light-3:#ff7f7f;
+  --el-color-danger-light-5:#ffa3a3;
+  --el-color-danger-light-7:#ffc7c7;
+  --el-color-danger-light-8:#ffd9d9;
+  --el-color-danger-light-9:rgba(255,93,93,.13);
+  --el-color-danger-dark-2:#f04444;
+  --el-color-error:#ff5d5d;
+  --el-color-error-light-9:rgba(255,93,93,.13);
+
+  --el-bg-color:#151b22;
+  --el-bg-color-overlay:#161e27;
+  --el-bg-color-page:#0d1115;
+  --el-fill-color-blank:rgba(255,255,255,.05);
+  --el-fill-color:rgba(255,255,255,.06);
+  --el-fill-color-light:rgba(255,255,255,.09);
+  --el-fill-color-lighter:rgba(255,255,255,.05);
+  --el-fill-color-dark:rgba(255,255,255,.12);
+  --el-fill-color-darker:rgba(255,255,255,.16);
+
+  --el-text-color-primary:#f2f5f8;
+  --el-text-color-regular:#dbe2e9;
+  --el-text-color-secondary:#94a1ad;
+  --el-text-color-placeholder:#6d7885;
+  --el-text-color-disabled:#5b6570;
+
+  --el-border-color:rgba(255,255,255,.17);
+  --el-border-color-light:rgba(255,255,255,.13);
+  --el-border-color-lighter:rgba(255,255,255,.09);
+  --el-border-color-extra-light:rgba(255,255,255,.06);
+  --el-border-color-dark:rgba(255,255,255,.24);
+  --el-border-color-darker:rgba(255,255,255,.32);
+  --el-border-color-hover:rgba(255,255,255,.36);
+
+  --el-mask-color:rgba(9,12,16,.6);
+  --el-box-shadow:0 16px 48px rgba(0,0,0,.45);
+  --el-box-shadow-light:0 8px 28px rgba(0,0,0,.35);
+  --el-font-family:inherit;
+  --el-border-radius-base:10px;
+  --el-border-radius-small:8px;
+}

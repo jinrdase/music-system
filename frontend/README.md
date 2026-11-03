@@ -1,6 +1,6 @@
 # 音乐系统前端
 
-独立 Vue 3 + Vite 前端，使用 Vue Router、Pinia、Axios 和 Element Plus。旧版静态页面仍保留在 `src/main/resources/static/`，新前端开发和构建在 `frontend/` 中完成。
+独立 Vue 3 + Vite 前端，使用 Vue Router、Pinia、Axios 和 Element Plus。后端已不再内置任何前端页面，8080 端口仅提供 /api 接口与 /media 媒体资源。
 
 ## 本地启动
 

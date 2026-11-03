@@ -12,6 +12,7 @@ import com.music.musicsystem.service.ShoppingCartService;
 import com.music.musicsystem.vo.CartItemVO;
 import com.music.musicsystem.vo.CartSummaryVO;
 import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +52,10 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             throw new BusinessException("该专辑已下架");
         }
 
-        // 2. 校验库存
+        // 2. 校验限购（审查 G-4：首次加购同样受 MAX_ITEM_QUANTITY 限制）与库存
+        if (dto.getQuantity() > MAX_ITEM_QUANTITY) {
+            throw new BusinessException("该商品限购" + MAX_ITEM_QUANTITY + "件");
+        }
         if (album.getStock() < dto.getQuantity()) {
             throw new BusinessException("库存不足，最多可购买" + album.getStock() + "件");
         }
@@ -65,22 +69,14 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
         if (existingCart != null) {
             // 已存在，更新数量
-            Integer newQuantity = existingCart.getQuantity() + dto.getQuantity();
-            if (newQuantity > MAX_ITEM_QUANTITY) {
-                throw new BusinessException("该商品限购" + MAX_ITEM_QUANTITY + "件");
-            }
-            if (newQuantity > album.getStock()) {
-                throw new BusinessException("库存不足");
-            }
-            existingCart.setQuantity(newQuantity);
-            shoppingCartMapper.updateById(existingCart);
+            mergeQuantity(existingCart, dto.getQuantity(), album);
         } else {
             // 4. 检查购物车商品数量限制
             Long cartCount = shoppingCartMapper.selectCount(
                     new LambdaQueryWrapper<ShoppingCart>().eq(ShoppingCart::getUserId, userId)
             );
             if (cartCount >= MAX_CART_ITEMS) {
-                throw new BusinessException("购物车最多添加" + MAX_CART_ITEMS + "件商品");
+                throw new BusinessException("购物车最多添加" + MAX_CART_ITEMS + "种商品");
             }
 
         // 5. 新增购物车记录。
@@ -92,8 +88,36 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
             cart.setPrice(album.getPrice());
             cart.setQuantity(dto.getQuantity());
             cart.setIsSelected(1); // 默认选中
-            shoppingCartMapper.insert(cart);
+            try {
+                shoppingCartMapper.insert(cart);
+            } catch (DuplicateKeyException e) {
+                // 审查 L-7：并发加购同款命中 (user_id, album_id) 唯一键，转为合并数量
+                ShoppingCart concurrent = shoppingCartMapper.selectOne(
+                        new LambdaQueryWrapper<ShoppingCart>()
+                                .eq(ShoppingCart::getUserId, userId)
+                                .eq(ShoppingCart::getAlbumId, dto.getAlbumId())
+                );
+                if (concurrent == null) {
+                    throw new BusinessException("加购失败，请重试");
+                }
+                mergeQuantity(concurrent, dto.getQuantity(), album);
+            }
         }
+    }
+
+    /**
+     * 同款商品合并数量：校验限购与库存后累加（审查 G-4）。
+     */
+    private void mergeQuantity(ShoppingCart existingCart, Integer addQuantity, Album album) {
+        Integer newQuantity = existingCart.getQuantity() + addQuantity;
+        if (newQuantity > MAX_ITEM_QUANTITY) {
+            throw new BusinessException("该商品限购" + MAX_ITEM_QUANTITY + "件");
+        }
+        if (newQuantity > album.getStock()) {
+            throw new BusinessException("库存不足");
+        }
+        existingCart.setQuantity(newQuantity);
+        shoppingCartMapper.updateById(existingCart);
     }
     /**
      * 更新购物车商品数量。
@@ -134,7 +158,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Transactional(rollbackFor = Exception.class)
     public void removeFromCart(Long userId, Long cartId) {
         getAndCheckCart(userId, cartId);
-        shoppingCartMapper.deleteById(cartId);
+        shoppingCartMapper.physicalDeleteById(cartId);
     }
     /**
      * 批量移除当前用户购物车中的商品。
@@ -150,9 +174,8 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         // 验证所有购物车项归
         for (Long cartId : cartIds) {
             getAndCheckCart(userId, cartId);
+            shoppingCartMapper.physicalDeleteById(cartId);
         }
-
-        shoppingCartMapper.deleteBatchIds(cartIds);
     }
     /**
      * 清空当前用户购物车。
@@ -161,9 +184,7 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void clearCart(Long userId) {
-        shoppingCartMapper.delete(
-                new LambdaQueryWrapper<ShoppingCart>().eq(ShoppingCart::getUserId, userId)
-        );
+        shoppingCartMapper.physicalDeleteByUserId(userId);
     }
     /**
      * 切换购物车单个商品的选中状态。
@@ -172,6 +193,8 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void toggleSelect(Long userId, Long cartId, Integer isSelected) {
+        // 审查 M-12：选中状态取值必须是 0/1，防止任意整数直写数据库
+        checkSelectedValue(isSelected);
         getAndCheckCart(userId, cartId);
 
         shoppingCartMapper.update(null,
@@ -187,11 +210,18 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void toggleSelectAll(Long userId, Integer isSelected) {
+        checkSelectedValue(isSelected);
         shoppingCartMapper.update(null,
                 new LambdaUpdateWrapper<ShoppingCart>()
                         .set(ShoppingCart::getIsSelected, isSelected)
                         .eq(ShoppingCart::getUserId, userId)
         );
+    }
+
+    private void checkSelectedValue(Integer isSelected) {
+        if (isSelected == null || (isSelected != 0 && isSelected != 1)) {
+            throw new BusinessException("选中状态值无效，只能为 0 或 1");
+        }
     }
     /**
      * 汇总购物车商品数量及金额信息。
@@ -223,7 +253,10 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
         for (CartItemVO item : items) {
             BigDecimal subtotal = item.getPrice().multiply(new BigDecimal(item.getQuantity()));
             item.setSubtotal(subtotal);
-            totalAmount = totalAmount.add(subtotal);
+            // 审查 L-15：总额只统计有效商品，失效项不按过期快照价计入
+            if (item.getIsValid() == 1) {
+                totalAmount = totalAmount.add(subtotal);
+            }
 
             if (item.getIsSelected() == 1 && item.getIsValid() == 1) {
                 selectedCount++;
@@ -250,8 +283,10 @@ public class ShoppingCartServiceImpl implements ShoppingCartService {
 
         for (ShoppingCart cart : cartList) {
             Album album = albumMapper.selectById(cart.getAlbumId());
-            if (album == null || album.getStatus() != 1 || album.getStock() == 0) {
-                shoppingCartMapper.deleteById(cart.getId());
+            // 审查 L-8：库存不足购买数量的项同样视为失效，让“清理失效商品”能清出可结算的购物车
+            if (album == null || album.getStatus() != 1
+                    || album.getStock() == null || album.getStock() < cart.getQuantity()) {
+                shoppingCartMapper.physicalDeleteById(cart.getId());
             }
         }
     }

@@ -3,11 +3,14 @@ package com.music.musicsystem.service.impl;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.internal.util.AlipaySignature;
+import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePagePayRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.response.AlipayTradeCloseResponse;
 import com.alipay.api.response.AlipayTradePagePayResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.music.musicsystem.common.constant.PaymentStatus;
 import com.music.musicsystem.common.exception.BusinessException;
 import com.music.musicsystem.config.AlipayClientProvider;
@@ -27,10 +30,13 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -70,8 +76,12 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PaymentVO createPayment(Long userId, PaymentDTO dto) {
-        // 1. 校验订单
-        OrderInfo order = orderInfoMapper.selectById(dto.getOrderId());
+        // 1. 校验订单（FOR UPDATE 行锁串行化同订单的并发创建支付，审查 M-5）
+        OrderInfo order = orderInfoMapper.selectOne(
+                new LambdaQueryWrapper<OrderInfo>()
+                        .eq(OrderInfo::getId, dto.getOrderId())
+                        .last("FOR UPDATE")
+        );
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
@@ -81,67 +91,96 @@ public class PaymentServiceImpl implements PaymentService {
         if (order.getStatus() != 0) {
             throw new BusinessException("订单状态异常，无法支付");
         }
+        // 审查 G-1：订单超时后不允许再发起支付（订单有效期与支付单有效期起点不同，必须单独校验）
+        if (order.getExpireTime() != null && order.getExpireTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException("订单已超时关闭，无法支付");
+        }
 
-        // 2. 检查是否已有待支付记录
-        Payment existingPayment = paymentMapper.selectOne(
+        // 2. 检查是否已有待支付记录（selectList 防历史脏数据导致 TooManyResults，审查 M-5）
+        List<Payment> pendings = paymentMapper.selectList(
                 new LambdaQueryWrapper<Payment>()
                         .eq(Payment::getOrderId, dto.getOrderId())
-                        .eq(Payment::getStatus, 0)
+                        .eq(Payment::getStatus, PaymentStatus.PENDING)
+                        .orderByDesc(Payment::getId)
         );
 
-        if (existingPayment != null) {
-            // 如果存在且未过期，返回已有支付
-            if (existingPayment.getCreateTime().plusMinutes(15).isAfter(LocalDateTime.now())) {
-                PaymentVO vo = buildPaymentVO(existingPayment);
-                if (!mockEnabled) {
-                    fillAlipayPayInfo(vo, existingPayment);
-                }
+        Payment payment;
+        PaymentVO vo;
+        if (!pendings.isEmpty()) {
+            payment = pendings.get(0);
+            // 如果存在且未过期，复用已有支付单
+            if (payment.getCreateTime().plusMinutes(15).isAfter(LocalDateTime.now())) {
+                vo = buildPaymentVO(payment);
+                registerAlipayPayInfoAfterCommit(vo, payment);
                 vo.setExpireTime(System.currentTimeMillis() + PAYMENT_TIMEOUT);
                 return vo;
             }
-
-            existingPayment.setStatus(2);
-            paymentMapper.updateById(existingPayment);
+            // 已过期的待支付单置失败；历史遗留的多余待支付单一并关闭
+            for (Payment stale : pendings) {
+                paymentMapper.update(null,
+                        new LambdaUpdateWrapper<Payment>()
+                                .eq(Payment::getId, stale.getId())
+                                .eq(Payment::getStatus, PaymentStatus.PENDING)
+                                .set(Payment::getStatus, PaymentStatus.FAILED)
+                );
+            }
         }
 
-        // 3. 创建支付记录
-        Payment payment = new Payment();
+        // 3. 创建支付记录（持有订单行锁，同订单不会并发插入两张待支付单）
+        payment = new Payment();
         payment.setPaymentNo(generatePaymentNo());
         payment.setOrderId(order.getId());
         payment.setOrderNo(order.getOrderNo());
         payment.setUserId(userId);
         payment.setAmount(order.getTotalAmount());
-        payment.setStatus(0);
+        payment.setStatus(PaymentStatus.PENDING);
         paymentMapper.insert(payment);
 
-        // 4. 调用支付宝沙箱/正式网关，生成收银台地址
-        PaymentVO vo = buildPaymentVO(payment);
-        if (!mockEnabled) {
-            fillAlipayPayInfo(vo, payment);
-        }
+        // 4. 组装返回；支付宝下单移到事务提交后执行，避免事务失败留下渠道孤儿交易（审查 L-9）
+        vo = buildPaymentVO(payment);
+        registerAlipayPayInfoAfterCommit(vo, payment);
         vo.setExpireTime(System.currentTimeMillis() + PAYMENT_TIMEOUT);
         return vo;
     }
 
     /**
-     * 生成支付宝收银台地址（渠道收敛后唯一渠道）。
-     * 复用未过期支付单的路径同样要走这里，保证每次 create 都能拿到支付地址。
+     * 事务提交后再调支付宝下单并回填收银台地址：afterCommit 在事务拦截器内同步执行，
+     * 控制器仍能在同一响应中拿到 payUrl；下单失败仅记日志（支付单已落库可重试重建）。
      */
-    private void fillAlipayPayInfo(PaymentVO vo, Payment payment) {
-        vo.setPayUrl(createAlipayOrder(payment));
+    private void registerAlipayPayInfoAfterCommit(PaymentVO vo, Payment payment) {
+        if (mockEnabled) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    vo.setPayUrl(createAlipayOrder(payment));
+                } catch (Exception e) {
+                    log.error("支付宝下单失败（支付单已创建，可重新发起支付）：paymentNo={}",
+                            payment.getPaymentNo(), e);
+                }
+            }
+        });
     }
+
     /**
      * 查询支付结果。支付宝渠道增加查单补偿：本机无法接收沙箱异步通知（notify_url 需公网）时，
      * 前端轮询本接口会顺带向支付宝主动查单，已支付则按回调同一套逻辑推进订单状态。
+     * 仅限支付单所有者查询（审查 M-6）。
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PaymentResultVO queryPaymentResult(String paymentNo) {
+    public PaymentResultVO queryPaymentResult(Long userId, String paymentNo) {
         Payment payment = paymentMapper.selectOne(
                 new LambdaQueryWrapper<Payment>().eq(Payment::getPaymentNo, paymentNo)
         );
 
         if (payment == null) {
+            throw new BusinessException("支付记录不存在");
+        }
+        // 审查 M-6：接口文档承诺“本人支付结果查询”，非本人一律按不存在处理
+        if (!payment.getUserId().equals(userId)) {
             throw new BusinessException("支付记录不存在");
         }
 
@@ -264,21 +303,106 @@ public class PaymentServiceImpl implements PaymentService {
         if (payment.getStatus() != PaymentStatus.PENDING) {
             throw new BusinessException("该支付单当前状态不可支付");
         }
+        // 审查 G-1：订单已取消/超时不允许模拟支付推进（与真实支付同一防线）
+        OrderInfo order = orderInfoMapper.selectById(payment.getOrderId());
+        if (order == null || order.getStatus() != 0) {
+            throw new BusinessException("订单状态异常，无法支付");
+        }
+        if (order.getExpireTime() != null && order.getExpireTime().isBefore(LocalDateTime.now())) {
+            throw new BusinessException("订单已超时关闭，无法支付");
+        }
         markPaymentSuccess(payment, "MOCK" + System.currentTimeMillis(), "mock-pay");
     }
 
     /**
-     * 支付成功统一推进：支付单置已支付 → 订单推进（盲盒订单同事务抽取）。
-     * 真实回调与模拟支付共用，保证行为一致。
+     * 支付成功统一推进：支付单条件更新 0→1（审查 M-1，防止与退款审核并发把已退款覆盖回已支付），
+     * 再推进订单（盲盒订单同事务抽取）。真实回调与模拟支付共用，保证行为一致。
+     * 已关闭(2)的支付单收到迟到真实支付时复活为成功——渠道已实际扣款，
+     * 订单侧（已取消）会自动原路退款（审查 G-1）。
      */
     private void markPaymentSuccess(Payment payment, String transactionId, String notifyData) {
-        payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setTransactionId(transactionId);
-        payment.setPayTime(LocalDateTime.now());
-        payment.setNotifyData(notifyData);
-        paymentMapper.updateById(payment);
+        int updated = paymentMapper.update(
+                null,
+                new LambdaUpdateWrapper<Payment>()
+                        .eq(Payment::getId, payment.getId())
+                        .eq(Payment::getStatus, PaymentStatus.PENDING)
+                        .set(Payment::getStatus, PaymentStatus.SUCCESS)
+                        .set(Payment::getTransactionId, transactionId)
+                        .set(Payment::getPayTime, LocalDateTime.now())
+                        .set(Payment::getNotifyData, notifyData)
+        );
+        if (updated > 0) {
+            orderService.handlePaymentSuccess(payment.getOrderId());
+            return;
+        }
 
-        orderService.handlePaymentSuccess(payment.getOrderId());
+        Payment current = paymentMapper.selectById(payment.getId());
+        if (current != null && current.getStatus() == PaymentStatus.FAILED) {
+            // 支付单已被取消/关闭，但渠道侧真实扣款到账：补记成功后交订单侧处理
+            log.warn("支付单 {} 已关闭但收到真实支付成功通知，复活支付单并触发订单侧处理",
+                    payment.getPaymentNo());
+            int revived = paymentMapper.update(
+                    null,
+                    new LambdaUpdateWrapper<Payment>()
+                            .eq(Payment::getId, payment.getId())
+                            .eq(Payment::getStatus, PaymentStatus.FAILED)
+                            .set(Payment::getStatus, PaymentStatus.SUCCESS)
+                            .set(Payment::getTransactionId, transactionId)
+                            .set(Payment::getPayTime, LocalDateTime.now())
+                            .set(Payment::getNotifyData, notifyData)
+            );
+            if (revived > 0) {
+                orderService.handlePaymentSuccess(payment.getOrderId());
+            }
+            return;
+        }
+        log.info("支付单 {} 状态已推进（当前非待支付），跳过重复/过期通知", payment.getPaymentNo());
+    }
+
+    /**
+     * 关闭订单下所有待支付支付单并尽力渠道关单（alipay.trade.close）。
+     * 渠道关单失败不阻断本地流程：本地已置失败，迟到真实支付由 markPaymentSuccess 的复活路径兜底。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int closePendingPaymentsForOrder(Long orderId) {
+        List<Payment> pendings = paymentMapper.selectList(
+                new LambdaQueryWrapper<Payment>()
+                        .eq(Payment::getOrderId, orderId)
+                        .eq(Payment::getStatus, PaymentStatus.PENDING)
+        );
+        for (Payment pending : pendings) {
+            int updated = paymentMapper.update(
+                    null,
+                    new LambdaUpdateWrapper<Payment>()
+                            .eq(Payment::getId, pending.getId())
+                            .eq(Payment::getStatus, PaymentStatus.PENDING)
+                            .set(Payment::getStatus, PaymentStatus.FAILED)
+            );
+            if (updated > 0 && alipayClientProvider.isConfigured()) {
+                closeAlipayTrade(pending.getPaymentNo());
+            }
+        }
+        return pendings.size();
+    }
+
+    /**
+     * 渠道关单（best-effort）：已支付或交易不存在时渠道返回失败，属正常情况。
+     */
+    private void closeAlipayTrade(String paymentNo) {
+        try {
+            AlipayTradeCloseRequest request = new AlipayTradeCloseRequest();
+            request.setBizContent("{\"out_trade_no\":\"" + paymentNo + "\"}");
+            AlipayTradeCloseResponse response = alipayClientProvider.get().execute(request);
+            if (response.isSuccess()) {
+                log.info("支付宝关单成功：paymentNo={}", paymentNo);
+            } else {
+                log.info("支付宝关单未成功（可能已支付或交易不存在）：paymentNo={}, subCode={}",
+                        paymentNo, response.getSubCode());
+            }
+        } catch (AlipayApiException e) {
+            log.warn("支付宝关单异常（不阻断取消流程）：paymentNo={}, {}", paymentNo, e.getMessage());
+        }
     }
     /**
      * 取消尚未完成的支付并同步订单状态。

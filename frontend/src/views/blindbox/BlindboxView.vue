@@ -169,7 +169,7 @@ onMounted(load)
   object-fit: cover;
   border-radius: 12px;
   margin-bottom: 18px;
-  background: linear-gradient(145deg, #453326, #191817);
+  background: linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.02));
 }
 .blindbox-cover-placeholder { display: grid; place-items: center; color: var(--accent); font-size: 56px; }
 .blindbox-detail-heading { display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 22px; align-items: center; margin-bottom: 20px; }

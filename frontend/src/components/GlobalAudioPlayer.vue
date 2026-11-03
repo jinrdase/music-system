@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Close } from '@element-plus/icons-vue'
 import { usePlayerStore } from '../stores/player'
 import { useUserStore } from '../stores/user'
 import { countPlay } from '../api/album'
@@ -60,6 +61,7 @@ function formatTime(seconds) {
       <span>{{ formatTime(player.duration) }}</span>
     </div>
     <label class="player-volume"><span>音量</span><input aria-label="音量" type="range" min="0" max="1" step="0.01" :value="player.volume" @input="player.setVolume($event.target.value)" /></label>
+    <button class="player-close" type="button" aria-label="关闭播放器" title="关闭播放器" @click="player.close()"><el-icon><Close/></el-icon></button>
     <audio
       ref="audio"
       :src="source"
@@ -76,7 +78,7 @@ function formatTime(seconds) {
 </template>
 
 <style scoped>
-.global-audio-player{position:fixed;z-index:50;left:50%;bottom:14px;transform:translateX(-50%);width:min(1120px,calc(100% - 28px));display:grid;grid-template-columns:56px minmax(120px,1fr) auto minmax(150px,1.2fr) 110px;align-items:center;gap:14px;padding:12px 16px;border:1px solid #ffffff24;border-radius:16px;background:#171513f5;box-shadow:0 12px 40px #0008;backdrop-filter:blur(14px)}
-.player-cover{width:56px;height:56px;object-fit:cover;border-radius:9px;background:#28231e}.player-track{display:grid;gap:3px;min-width:0}.player-track strong,.player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.player-track strong{font-size:13px}.player-track span{font-size:11px;color:var(--muted)}.player-track .player-status{color:var(--accent)}.player-controls{display:flex;align-items:center;gap:2px}.player-controls :deep(.el-button){margin:0;padding:8px}.player-progress{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}.player-progress input,.player-volume input{width:100%;accent-color:var(--accent)}.player-volume{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px}.global-audio-player audio{display:none}
-@media(max-width:760px){.global-audio-player{grid-template-columns:44px minmax(90px,1fr) auto;gap:8px;padding:9px}.player-cover{width:44px;height:44px}.player-progress{grid-column:1/4}.player-volume{display:none}.player-controls :deep(.el-button){font-size:11px;padding:7px 5px}}
+.global-audio-player{position:fixed;z-index:50;left:50%;bottom:14px;transform:translateX(-50%);width:min(1120px,calc(100% - 28px));display:grid;grid-template-columns:56px minmax(120px,1fr) auto minmax(150px,1.2fr) 110px auto;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--glass-border);border-radius:14px;background:rgba(15,20,26,.55);box-shadow:0 12px 40px rgba(0,0,0,.45);backdrop-filter:blur(22px) saturate(1.3)}
+.player-cover{width:56px;height:56px;object-fit:cover;border-radius:9px;background:rgba(255,255,255,.08)}.player-track{display:grid;gap:3px;min-width:0}.player-track strong,.player-track span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.player-track strong{font-size:13px}.player-track span{font-size:11px;color:var(--muted)}.player-track .player-status{color:var(--accent)}.player-controls{display:flex;align-items:center;gap:2px}.player-controls :deep(.el-button){margin:0;padding:8px}.player-progress{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted)}.player-progress input,.player-volume input{width:100%;accent-color:var(--accent)}.player-volume{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px}.player-close{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;border:1px solid var(--glass-border);background:transparent;color:var(--muted);cursor:pointer;font-size:14px;transition:color .15s,border-color .15s,background .15s}.player-close:hover{color:#fff;border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.08)}.global-audio-player audio{display:none}
+@media(max-width:760px){.global-audio-player{grid-template-columns:44px minmax(90px,1fr) auto auto;gap:8px;padding:9px}.player-cover{width:44px;height:44px}.player-progress{grid-column:1/-1}.player-volume{display:none}.player-controls :deep(.el-button){font-size:11px;padding:7px 5px}}
 </style>

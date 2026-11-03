@@ -38,6 +38,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -95,6 +96,12 @@ public class RefundServiceImpl implements RefundService {
         }
         if (!RefundPolicy.canApply(order)) {
             throw new BusinessException("只有已支付且未确认收货的订单可以申请退款");
+        }
+        // 审查 G-2：盲盒订单支付即抽取（抽取结果摘要回写订单），已抽取订单退款会形成
+        // “白拿奖品+全额退款”套利，直接拒绝
+        if (order.getOrderType() != null && order.getOrderType() == 2
+                && order.getDrawSummary() != null) {
+            throw new BusinessException("盲盒订单已抽取，不支持退款");
         }
         if (ProductType.isDigital(order.getProductType()) && order.getDigitalContentAccessedAt() != null) {
             throw new BusinessException("数字内容已交付，不能在线提交退款申请");
@@ -202,6 +209,11 @@ public class RefundServiceImpl implements RefundService {
             return;
         }
 
+        // 与接口文档一致：拒绝必须填写原因
+        if (dto.getAuditRemark() == null || dto.getAuditRemark().isBlank()) {
+            throw new BusinessException("拒绝退款申请时必须填写审核备注");
+        }
+
         int updated = refundApplicationMapper.update(
                 null,
                 new LambdaUpdateWrapper<RefundApplication>()
@@ -220,8 +232,45 @@ public class RefundServiceImpl implements RefundService {
     /**
      * 审核通过并执行退款。全链路状态推进都使用条件更新，任一步失败抛异常回滚整个事务，
      * 申请回到待审核状态，不会出现"申请已通过但订单未退款"的中间态。
+     * 执行前复核全部退款条件（审查 G-3）：申请后、审核前数字内容可能已被取阅、
+     * 盲盒可能已抽取、订单状态可能已变化——不满足则自动拒绝申请而非照常退款。
      */
     private void approveAndExecuteRefund(Long applicationId, Long auditorId, RefundReviewDTO dto) {
+        RefundApplication application = refundApplicationMapper.selectById(applicationId);
+        if (application == null || application.getStatus() != RefundStatus.PENDING) {
+            throw new BusinessException("该申请已被处理，请刷新列表");
+        }
+
+        // 0. 复核退款条件（订单行 FOR UPDATE，与确认收货/数字取阅串行化，审查 G-3/M-7）
+        OrderInfo lockedOrder = orderInfoMapper.selectOne(
+                new LambdaQueryWrapper<OrderInfo>()
+                        .eq(OrderInfo::getId, application.getOrderId())
+                        .last("FOR UPDATE")
+        );
+        if (lockedOrder == null) {
+            throw new BusinessException("订单不存在");
+        }
+        String rejectReason = checkRefundStillValid(lockedOrder);
+        if (rejectReason != null) {
+            // 自动拒绝后正常返回（不能抛异常，否则整个事务回滚、拒绝状态落不了库），
+            // 管理端列表会显示“已拒绝 + 复核不通过原因”
+            int rejected = refundApplicationMapper.update(
+                    null,
+                    new LambdaUpdateWrapper<RefundApplication>()
+                            .eq(RefundApplication::getId, applicationId)
+                            .eq(RefundApplication::getStatus, RefundStatus.PENDING)
+                            .set(RefundApplication::getStatus, RefundStatus.REJECTED)
+                            .set(RefundApplication::getAuditRemark, "复核不通过：" + rejectReason)
+                            .set(RefundApplication::getAuditorId, auditorId)
+                            .set(RefundApplication::getAuditTime, LocalDateTime.now())
+            );
+            if (rejected > 0) {
+                log.info("退款申请复核不通过，自动拒绝：申请ID={}, 原因={}", applicationId, rejectReason);
+                return;
+            }
+            throw new BusinessException("该申请已被处理，请刷新列表");
+        }
+
         // 1. 条件更新申请状态（WHERE status=0），并发审核仅一处成功
         int updated = refundApplicationMapper.update(
                 null,
@@ -236,7 +285,6 @@ public class RefundServiceImpl implements RefundService {
         if (updated == 0) {
             throw new BusinessException("该申请已被处理，请刷新列表");
         }
-        RefundApplication application = refundApplicationMapper.selectById(applicationId);
 
         // 2. 订单推进为已退款(5)：仅已支付/已发货可退（条件更新防并发）
         int orderUpdated = orderInfoMapper.update(
@@ -261,7 +309,8 @@ public class RefundServiceImpl implements RefundService {
             throw new BusinessException("未找到已支付的支付单，退款执行失败");
         }
         if (isRealAlipayPayment(payment)) {
-            callAlipayRefund(payment, application);
+            callAlipayRefund(payment, application.getRefundAmount(),
+                    "R" + application.getId(), "用户退款审核通过");
         }
 
         // 4. 支付单置为已退款(3)
@@ -283,6 +332,79 @@ public class RefundServiceImpl implements RefundService {
     }
 
     /**
+     * 退款执行前的条件复核（与 apply() 同一套闸门）：返回拒绝原因，null 表示可退。
+     */
+    private String checkRefundStillValid(OrderInfo order) {
+        if (!RefundPolicy.canApply(order)) {
+            return "订单当前状态不支持退款";
+        }
+        if (ProductType.isDigital(order.getProductType()) && order.getDigitalContentAccessedAt() != null) {
+            return "数字内容已取阅";
+        }
+        Long accessedDigitalItems = orderItemMapper.selectCount(
+                new LambdaQueryWrapper<OrderItem>()
+                        .eq(OrderItem::getOrderId, order.getId())
+                        .eq(OrderItem::getProductType, ProductType.DIGITAL)
+                        .isNotNull(OrderItem::getDigitalContentAccessedAt)
+        );
+        if (accessedDigitalItems != null && accessedDigitalItems > 0) {
+            return "订单中数字内容已取阅";
+        }
+        if (order.getOrderType() != null && order.getOrderType() == 2
+                && order.getDrawSummary() != null) {
+            return "盲盒订单已抽取";
+        }
+        return null;
+    }
+
+    /**
+     * 系统自动退款（审查 G-1/M-8 资金补偿）：真实支付宝支付先调渠道退款
+     * （out_request_no 按 SYS+订单ID 确定性生成，重试天然幂等），
+     * 支付单条件更新置已退款，并落一条系统退款记录供对账。订单状态与库存由调用方处理。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void executeSystemRefund(OrderInfo order, String reason) {
+        Payment payment = paymentMapper.selectOne(
+                new LambdaQueryWrapper<Payment>()
+                        .eq(Payment::getOrderId, order.getId())
+                        .eq(Payment::getStatus, PaymentStatus.SUCCESS)
+                        .orderByDesc(Payment::getId)
+                        .last("LIMIT 1")
+        );
+        if (payment == null) {
+            log.warn("系统退款未找到已支付支付单，跳过支付单处理：订单号={}", order.getOrderNo());
+        } else {
+            if (isRealAlipayPayment(payment)) {
+                callAlipayRefund(payment, order.getTotalAmount(),
+                        "SYS" + order.getId(), reason);
+            }
+            int paymentUpdated = paymentMapper.update(
+                    null,
+                    new LambdaUpdateWrapper<Payment>()
+                            .eq(Payment::getId, payment.getId())
+                            .eq(Payment::getStatus, PaymentStatus.SUCCESS)
+                            .set(Payment::getStatus, PaymentStatus.REFUNDED)
+            );
+            if (paymentUpdated == 0) {
+                log.warn("系统退款：支付单 {} 状态已变化，未重复置为已退款", payment.getPaymentNo());
+            }
+        }
+
+        RefundApplication application = new RefundApplication();
+        application.setOrderId(order.getId());
+        application.setOrderNo(order.getOrderNo());
+        application.setUserId(order.getUserId());
+        application.setRefundAmount(order.getTotalAmount());
+        application.setReason(reason);
+        application.setStatus(RefundStatus.REFUNDED);
+        application.setAuditRemark("系统自动退款：" + reason);
+        application.setDeleted(0);
+        refundApplicationMapper.insert(application);
+        log.info("系统自动退款完成：订单号={}, 金额={}", order.getOrderNo(), order.getTotalAmount());
+    }
+
+    /**
      * 真实支付宝支付判断：交易号非模拟支付生成的 MOCK 前缀。
      * 模拟支付/回调走的支付没有渠道侧资金，退款只做本地状态流转。
      */
@@ -293,27 +415,35 @@ public class RefundServiceImpl implements RefundService {
 
     /**
      * 调用支付宝退款接口（alipay.trade.refund，同步返回）。
-     * 退款单号按 applicationId 确定性生成：同一申请重试生成同一单号，渠道侧天然幂等。
+     * out_request_no 由调用方确定性生成（审核退款=R+申请ID、系统退款=SYS+订单ID）：
+     * 同一业务重试生成同一单号，渠道侧天然幂等。
+     * fund_change=N 说明渠道侧本请求未动账——只会出现在同单号重试场景
+     * （此前请求已实际退款，本地事务回滚后的重试），资金已在更早一次离账，视为成功（审查 L-6）。
      */
-    private void callAlipayRefund(Payment payment, RefundApplication application) {
+    private void callAlipayRefund(Payment payment, BigDecimal refundAmount,
+                                  String outRequestNo, String refundReason) {
         AlipayClient client = alipayClientProvider.get();
         AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
-        String refundAmount = application.getRefundAmount().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+        String amount = refundAmount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
         request.setBizContent("{" +
                 "\"out_trade_no\":\"" + payment.getPaymentNo() + "\"," +
-                "\"refund_amount\":\"" + refundAmount + "\"," +
-                "\"out_request_no\":\"R" + application.getId() + "\"," +
-                "\"refund_reason\":\"user refund\"" +
+                "\"refund_amount\":\"" + amount + "\"," +
+                "\"out_request_no\":\"" + outRequestNo + "\"," +
+                "\"refund_reason\":\"" + refundReason + "\"" +
                 "}");
         try {
             AlipayTradeRefundResponse response = client.execute(request);
             if (!response.isSuccess()) {
                 throw new BusinessException("支付宝退款失败：" + response.getSubMsg());
             }
-            log.info("支付宝退款成功：申请ID={}, paymentNo={}, 金额={}, fundChange={}",
-                    application.getId(), payment.getPaymentNo(), refundAmount, response.getFundChange());
+            if (!"Y".equals(response.getFundChange())) {
+                log.warn("支付宝退款 fund_change=N（同单号重试，资金此前已退）：paymentNo={}, outRequestNo={}",
+                        payment.getPaymentNo(), outRequestNo);
+            }
+            log.info("支付宝退款成功：paymentNo={}, outRequestNo={}, 金额={}",
+                    payment.getPaymentNo(), outRequestNo, amount);
         } catch (AlipayApiException e) {
-            log.error("支付宝退款异常：申请ID={}", application.getId(), e);
+            log.error("支付宝退款异常：paymentNo={}, outRequestNo={}", payment.getPaymentNo(), outRequestNo, e);
             throw new BusinessException("支付宝退款异常：" + e.getMessage());
         }
     }

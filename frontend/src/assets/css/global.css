@@ -1,1 +1,170 @@
-*{box-sizing:border-box}body{margin:0;min-width:320px;background:radial-gradient(ellipse at 50% -30%,#35261d 0,transparent 52%),var(--bg);color:var(--text)}a{color:inherit;text-decoration:none}button,input{font:inherit}img{display:block;max-width:100%}.el-button--primary{--el-button-bg-color:#c7864c;--el-button-border-color:#c7864c;--el-button-hover-bg-color:#dfa36d;--el-button-hover-border-color:#dfa36d}.el-input__wrapper,.el-textarea__inner,.el-select__wrapper{background:#24211e!important;box-shadow:0 0 0 1px #454038 inset!important}.el-input__inner,.el-textarea__inner{color:#eeeae2!important}.el-dialog,.el-message-box{background:#1b1917!important;color:#eeeae2!important}.el-table,.el-table tr,.el-table th.el-table__cell,.el-table td.el-table__cell{background:#1b1917!important;color:#eeeae2;border-color:#39342e}.el-table--striped .el-table__body tr.el-table__row--striped td{background:#211e1b!important}
+/* ============================================================
+   PP唱片 · 全局层
+   工业蓝图网格背景 + Element Plus 玻璃化覆盖
+   ============================================================ */
+*{box-sizing:border-box}
+body{
+  margin:0;min-width:320px;color:var(--text);background-color:var(--bg);
+  background-image:
+    radial-gradient(ellipse 70% 42% at 50% -12%,rgba(255,138,42,.09),transparent 62%),
+    radial-gradient(ellipse 55% 40% at 88% 6%,rgba(96,152,205,.10),transparent 65%),
+    radial-gradient(ellipse 60% 50% at 6% 92%,rgba(96,152,205,.06),transparent 62%),
+    linear-gradient(rgba(255,255,255,.024) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.024) 1px,transparent 1px);
+  background-size:auto,auto,auto,52px 52px,52px 52px;
+  background-attachment:fixed,fixed,fixed,fixed,fixed;
+}
+a{color:inherit;text-decoration:none}
+button,input{font:inherit}
+img{display:block;max-width:100%}
+
+/* 细滚动条,贴合工业风 */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:8px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background-color:rgba(255,255,255,.28)}
+
+/* 键盘可达性:统一橙色焦点环 */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- 按钮:深色背景上边界清晰、主次分明 ---------- */
+.el-button{border-radius:10px;font-weight:600;letter-spacing:.02em}
+
+/* 主按钮:实心安全橙 + 深色文字(对比度≈9:1),悬停带光晕 */
+.el-button--primary{
+  --el-button-text-color:var(--on-accent);
+  --el-button-hover-text-color:var(--on-accent);
+  --el-button-active-text-color:var(--on-accent);
+  --el-button-disabled-text-color:rgba(26,16,5,.5);
+}
+.el-button--primary:not(.is-text):not(.is-plain):not(.is-link):not(.is-disabled):hover{
+  box-shadow:0 6px 22px rgba(255,138,42,.38);transform:translateY(-1px);
+}
+.el-button--primary:not(.is-text):not(.is-plain):not(.is-link){transition:transform .15s,box-shadow .15s,background-color .15s}
+
+/* 次按钮(默认型):玻璃底 + 清晰描边,告别"浅色块贴深色背景" */
+.el-button:not([class*="el-button--"]):not(.is-text):not(.is-link){
+  --el-button-bg-color:rgba(255,255,255,.09);
+  --el-button-border-color:rgba(255,255,255,.24);
+  --el-button-text-color:var(--text);
+  --el-button-hover-bg-color:rgba(255,255,255,.15);
+  --el-button-hover-border-color:rgba(255,255,255,.42);
+  --el-button-hover-text-color:#fff;
+  --el-button-active-bg-color:rgba(255,255,255,.12);
+  --el-button-active-border-color:rgba(255,255,255,.36);
+  --el-button-active-text-color:#fff;
+  --el-button-disabled-bg-color:rgba(255,255,255,.04);
+  --el-button-disabled-border-color:rgba(255,255,255,.10);
+  --el-button-disabled-text-color:#5f6a75;
+}
+
+/* 描边/文字按钮:统一橙色系,保证可发现性 */
+.el-button--primary.is-plain{
+  --el-button-text-color:var(--accent-text);
+  --el-button-bg-color:var(--accent-soft);
+  --el-button-border-color:var(--accent-border);
+  --el-button-hover-text-color:#ffc48a;
+  --el-button-hover-bg-color:rgba(255,138,42,.24);
+  --el-button-hover-border-color:rgba(255,138,42,.68);
+}
+.el-button--primary.is-text{--el-button-text-color:var(--accent-text);--el-button-hover-text-color:#ffc48a}
+.el-button.is-text:not(.el-button--primary):not(.el-button--danger):not(.el-button--success){
+  --el-button-text-color:#cdd6de;
+  --el-button-hover-text-color:#fff;
+  --el-button-bg-color:transparent;
+  --el-button-hover-bg-color:rgba(255,255,255,.09);
+}
+
+/* ---------- 输入类:玻璃底 + 橙色聚焦 ---------- */
+.el-input__wrapper,.el-textarea__inner,.el-select__wrapper{
+  background:rgba(255,255,255,.06)!important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.16) inset!important;
+  border-radius:10px;
+}
+.el-input__wrapper.is-focus,.el-select__wrapper.is-focused,.el-textarea__inner:focus{
+  box-shadow:0 0 0 1.5px var(--accent) inset,0 0 0 3px rgba(255,138,42,.16)!important;
+}
+.el-input__inner,.el-textarea__inner{color:var(--text)!important}
+.el-input__inner::placeholder,.el-textarea__inner::placeholder{color:#6d7885}
+.el-input.is-disabled .el-input__wrapper,.el-textarea.is-disabled .el-textarea__inner{
+  background:rgba(255,255,255,.03)!important;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset!important;
+}
+.el-range-input{color:var(--text);background:transparent}
+.el-range-input::placeholder{color:#6d7885}
+.el-input-number__decrease,.el-input-number__increase{background:rgba(255,255,255,.07);color:var(--muted)}
+.el-input-number__decrease{border-right:1px solid rgba(255,255,255,.1)}
+.el-input-number__increase{border-left:1px solid rgba(255,255,255,.1)}
+
+/* ---------- 弹层:深色玻璃 ---------- */
+.el-overlay{backdrop-filter:blur(4px)}
+.el-dialog,.el-message-box{
+  background:rgba(19,25,32,.88)!important;
+  color:var(--text)!important;
+  border:1px solid var(--glass-border);
+  border-radius:16px!important;
+  box-shadow:0 24px 80px rgba(0,0,0,.5);
+  backdrop-filter:blur(24px) saturate(1.2);
+}
+.el-dialog__title,.el-message-box__title{color:var(--text);font-weight:700}
+.el-dialog__headerbtn .el-dialog__close{color:var(--muted)}
+.el-dialog__headerbtn:hover .el-dialog__close{color:var(--accent)}
+
+/* ---------- 表格:透明玻璃行 ---------- */
+.el-table{
+  --el-table-bg-color:transparent;
+  --el-table-tr-bg-color:transparent;
+  --el-table-header-bg-color:rgba(255,255,255,.045);
+  --el-table-row-hover-bg-color:rgba(255,255,255,.055);
+  --el-table-border-color:rgba(255,255,255,.09);
+  --el-table-header-text-color:#8d99a6;
+  --el-table-text-color:var(--text);
+  background:transparent!important;
+}
+.el-table .el-table__inner-wrapper{background:transparent}
+.el-table th.el-table__cell{font-weight:600;letter-spacing:.05em}
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell{background:rgba(255,255,255,.026)!important}
+.el-table__empty-block{background:transparent}
+
+/* ---------- 其他组件 ---------- */
+.el-tag{border-radius:6px;--el-tag-bg-color:rgba(255,255,255,.08);--el-tag-border-color:rgba(255,255,255,.22);--el-tag-text-color:var(--text)}
+.el-alert{border-radius:12px;backdrop-filter:blur(10px)}
+.el-alert--info{background:rgba(255,255,255,.07)}
+.el-message{background:rgba(19,25,32,.92);border:1px solid rgba(255,255,255,.16);color:var(--text);border-radius:12px;backdrop-filter:blur(16px)}
+.el-message .el-message__content{color:var(--text)}
+
+.el-pagination{--el-pagination-bg-color:rgba(255,255,255,.08);--el-pagination-text-color:var(--muted);--el-pagination-button-disabled-bg-color:rgba(255,255,255,.04);--el-pagination-button-disabled-color:#5f6a75;--el-pagination-hover-color:var(--accent-bright)}
+.el-pagination button{background:rgba(255,255,255,.08);border-radius:8px}
+.el-pager li{background:rgba(255,255,255,.08);border-radius:8px;margin:0 3px;color:var(--muted)}
+.el-pager li.is-active{background:var(--accent);color:var(--on-accent)!important;font-weight:700}
+.el-pager li:hover:not(.is-active){color:var(--accent-bright)}
+
+.el-checkbox__label{color:var(--text)}
+.actions .el-button+.el-button{margin-left:0}
+.el-checkbox__inner{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.35)}
+.el-checkbox__input.is-checked .el-checkbox__inner{background:var(--accent);border-color:var(--accent)}
+.el-checkbox__input.is-checked+.el-checkbox__label{color:var(--accent-text)}
+
+.el-empty__description p{color:var(--muted)}
+.el-skeleton__item{background:rgba(255,255,255,.08)}
+.el-result__title{color:var(--text)}
+.el-result__subtitle p{color:var(--muted)}
+.el-loading-mask{backdrop-filter:blur(2px)}
+
+/* 描述列表(订单详情) */
+.el-descriptions__body .el-descriptions__table{--el-descriptions-item-bordered-label-background:rgba(255,255,255,.05);background:transparent!important}
+.el-descriptions__body .el-descriptions__table .el-descriptions__cell{background:transparent!important;color:var(--text)!important;border-color:rgba(255,255,255,.10)!important}
+.el-descriptions__label.el-descriptions__cell.is-bordered-label{color:var(--muted)!important;font-weight:600}
+
+/* 下拉/日期选择浮层 */
+.el-popper.is-light{background:rgba(20,27,35,.95)!important;border:1px solid var(--glass-border)!important;backdrop-filter:blur(22px);border-radius:12px}
+.el-popper.is-light .el-popper__arrow::before{background:rgba(20,27,35,.95)!important;border-color:var(--glass-border)!important}
+.el-select-dropdown__item{color:var(--text)}
+.el-select-dropdown__item.is-hovering{background:rgba(255,255,255,.08)}
+.el-select-dropdown__item.is-selected{color:var(--accent-text);font-weight:600}
+
+/* 统一确认弹窗:玻璃卡片、主/次按钮分明 */
+.app-confirm{border-radius:16px!important;border:1px solid var(--glass-border)!important;max-width:min(420px,92vw);padding:6px 4px 2px;backdrop-filter:blur(24px)}
+.app-confirm .el-message-box__header{padding-bottom:4px}
+.app-confirm .el-message-box__title{color:var(--text);font-weight:750;font-size:16px}
+.app-confirm .el-message-box__content{color:var(--muted);line-height:1.75;font-size:14px;padding:10px 2px 16px}
+.app-confirm .el-message-box__btns .el-button{border-radius:10px;padding:9px 20px;font-weight:600}

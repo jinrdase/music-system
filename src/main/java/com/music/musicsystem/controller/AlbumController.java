@@ -32,8 +32,18 @@ public class AlbumController {
             @RequestParam(defaultValue = "10") Integer size,
             @RequestParam(required = false) String keyword
     ) {
-        Page<AlbumVO> page = albumService.getAlbumList(current, size, keyword);
+        // 审查 L-14：分页 size 封顶，防止一次拖取全量数据
+        Page<AlbumVO> page = albumService.getAlbumList(
+                normalizeCurrent(current), normalizeSize(size), keyword);
         return Result.success(page);
+    }
+
+    static Integer normalizeCurrent(Integer current) {
+        return (current == null || current < 1) ? 1 : current;
+    }
+
+    static Integer normalizeSize(Integer size) {
+        return (size == null || size < 1) ? 10 : Math.min(size, 100);
     }
 
     /**

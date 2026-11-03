@@ -39,6 +39,11 @@ public interface OrderService extends IService<OrderInfo> {
     void cancelOrder(Long userId, String orderNo);
 
     /**
+     * 超时自动取消（定时任务入口）：与用户取消同一状态机，库存流水记 type=3。
+     */
+    void timeoutCancelOrder(Long userId, String orderNo);
+
+    /**
      * 管理员标记订单已发货
      */
     void shipOrder(String orderNo, ShipOrderDTO dto);
