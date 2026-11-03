@@ -1,5 +1,6 @@
 <script setup>
 import AppHeader from '../components/AppHeader.vue'
 import AppFooter from '../components/AppFooter.vue'
+import AiAssistant from '../components/AiAssistant.vue'
 </script>
-<template><div class="site-shell"><AppHeader/><main class="main-content"><RouterView/></main><AppFooter/></div></template>
+<template><div class="site-shell"><AppHeader/><main class="main-content"><RouterView/></main><AppFooter/><AiAssistant/></div></template>
