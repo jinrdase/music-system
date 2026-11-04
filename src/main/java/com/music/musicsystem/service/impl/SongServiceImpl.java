@@ -96,6 +96,19 @@ public class SongServiceImpl extends ServiceImpl<SongMapper, Song> implements So
             throw new BusinessException("专辑不存在");
         }
     }
+
+    /**
+     * 删除指定歌曲（逻辑删除）。
+     */
+
+    @Override
+    public void deleteSong(Long songId) {
+        Song song = this.getById(songId);
+        if (song == null) {
+            throw new BusinessException("歌曲不存在");
+        }
+        this.removeById(songId);
+    }
     /**
      * 增加歌曲播放次数。
      */

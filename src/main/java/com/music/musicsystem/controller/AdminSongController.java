@@ -51,6 +51,13 @@ public class AdminSongController {
         return Result.success("歌曲信息已更新", null);
     }
 
+    @DeleteMapping("/{songId}")
+    public Result<Void> delete(@PathVariable Long songId, HttpServletRequest request) {
+        requireAdmin(request);
+        songService.deleteSong(songId);
+        return Result.success("歌曲已删除", null);
+    }
+
     private void requireAdmin(HttpServletRequest request) {
         String role = (String) request.getAttribute("role");
         if (!"admin".equalsIgnoreCase(role) && !"super_admin".equalsIgnoreCase(role)) {

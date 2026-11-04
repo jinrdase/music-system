@@ -4,6 +4,7 @@ export const saveAlbum = (id, body) => id ? request.put(`/admin/albums/${id}`, b
 export const albumStatus = (id, status) => request.put(`/admin/albums/${id}/status`, null, { params: { status } })
 export const adminSongs = params => request.get('/admin/songs', { params })
 export const saveSong = (id, body) => id ? request.put(`/admin/songs/${id}`, body) : request.post('/admin/songs', body)
+export const deleteSong = id => request.delete(`/admin/songs/${id}`)
 export const adminUsers = params => request.get('/admin/users', { params })
 export const userStatus = (id, status) => request.put(`/admin/users/${id}/status`, { status })
 export const userRole = (id, role) => request.put(`/admin/users/${id}/role`, { role })

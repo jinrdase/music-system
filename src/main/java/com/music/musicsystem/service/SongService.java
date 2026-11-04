@@ -31,4 +31,9 @@ public interface SongService extends IService<Song> {
      * 更新指定歌曲的信息。
      */
     void updateSong(Long songId, SongManagementDTO dto);
+
+    /**
+     * 删除指定歌曲（逻辑删除；歌曲不参与交易，无级联数据）。
+     */
+    void deleteSong(Long songId);
 }
