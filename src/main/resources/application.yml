@@ -52,8 +52,10 @@ spring:
       api-key: ${zhipu.local.api-key:${ZHIPU_API_KEY:}}
       chat:
         options:
-          model: glm-4-flash
-          temperature: 0.7
+          # glm-4.6：智谱旗舰模型，工具调用遵循度远高于免费的 glm-4-flash（按量计费，价格较低）
+          model: glm-4.6
+          # 工具调用场景低温更稳定
+          temperature: 0.3
 
 ai:
   chat:
@@ -110,7 +112,8 @@ alipay:
   sign-type: RSA2
   # 异步通知地址：沙箱要求公网可达；未配穿透时留空，由查单补偿（GET /api/payment/query 轮询）推进状态
   notify-url: ""
-  # 支付成功后浏览器跳回的前端地址（可选）
-  return-url: ""
+  # 支付成功后浏览器跳回的前端落地页（GET 跳转，本机浏览器访问即可，无需公网）；
+  # 页面会主动调用查单接口推进并展示支付结果。按实际前端地址修改（dev 默认 5173，生产改为对应域名）。
+  return-url: http://localhost:5173/pay/return
   format: json
   charset: UTF-8

@@ -41,6 +41,8 @@ public class OrderVO {
     private LocalDateTime expireTime;
     private String remark;
     private LocalDateTime createTime;
+    /** 盲盒订单（orderType=2）支付后自动抽取的结果摘要，如 "SSR·手办、SR·立牌"；未抽取/非盲盒为 null */
+    private String drawSummary;
     /** 订单明细（订单详情/明细查询接口返回；多商品订单为多条，旧单商品订单为单条） */
     private List<OrderItemVO> items;
     /** 当前是否允许申请退款（由后端统一判定） */
